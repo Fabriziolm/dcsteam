@@ -33,6 +33,7 @@ import { LoginScreen } from "./login-screen";
 import { PendingApproval, TeamManagement } from "./team-management";
 import { ServicesManagement } from "./services-management";
 import { OperativePortal } from "./operative-portal";
+import { BillingManagement, ExpensesManagement, FleetManagement } from "./admin-modules";
 import { isSupabaseConfigured, supabase } from "../lib/supabase";
 
 type Role = "Propietario" | "Administrador" | "Coordinador" | "Chofer" | "Auxiliar";
@@ -174,7 +175,13 @@ function Dashboard({ session }: { session: Session }) {
   const operationsManager = owner || role === "Coordinador";
   const [view, setView] = useState(owner ? "Resumen" : role === "Coordinador" ? "Operaciones" : "Mi jornada");
   const signOut = () => { void supabase?.auth.signOut(); };
-  const content = owner && view === "Equipo" ? <TeamManagement /> : operationsManager && view === "Operaciones" ? <ServicesManagement /> : owner ? <OwnerDashboard /> : <OperativePortal role={role as "Coordinador" | "Chofer" | "Auxiliar"} session={session} />;
+  const content = owner && view === "Equipo" ? <TeamManagement />
+    : operationsManager && view === "Operaciones" ? <ServicesManagement />
+    : owner && view === "Facturación" ? <BillingManagement />
+    : owner && view === "Caja y gastos" ? <ExpensesManagement />
+    : owner && view === "Flota" ? <FleetManagement />
+    : owner ? <OwnerDashboard />
+    : <OperativePortal role={role as "Coordinador" | "Chofer" | "Auxiliar"} session={session} />;
   return <div className="app-shell"><Sidebar role={role} view={view} setView={setView} onSignOut={signOut} /><div className="main-area"><Header role={role} email={session.user.email ?? "Usuario DCS"} />{content}</div></div>;
 }
 
