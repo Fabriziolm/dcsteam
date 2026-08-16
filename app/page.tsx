@@ -51,7 +51,7 @@ const services = [
 function Brand() {
   return (
     <div className="brand">
-      <img className="brand-logo" src="/dcs-logo-white.png" alt="Express by DCS Company" />
+      <img className="brand-logo" src="./dcs-logo-white.png" alt="Express by DCS Company" />
       <div><strong>Express</strong><span>Gestión de transporte</span></div>
     </div>
   );
