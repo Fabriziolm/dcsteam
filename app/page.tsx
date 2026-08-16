@@ -34,6 +34,7 @@ import { PendingApproval, TeamManagement } from "./team-management";
 import { ServicesManagement } from "./services-management";
 import { OperativePortal } from "./operative-portal";
 import { BillingManagement, ExpensesManagement, FleetManagement } from "./admin-modules";
+import { LiveOwnerDashboard } from "./owner-dashboard";
 import { isSupabaseConfigured, supabase } from "../lib/supabase";
 
 type Role = "Propietario" | "Administrador" | "Coordinador" | "Chofer" | "Auxiliar";
@@ -180,7 +181,7 @@ function Dashboard({ session }: { session: Session }) {
     : owner && view === "Facturación" ? <BillingManagement />
     : owner && view === "Caja y gastos" ? <ExpensesManagement />
     : owner && view === "Flota" ? <FleetManagement />
-    : owner ? <OwnerDashboard />
+    : owner ? <LiveOwnerDashboard />
     : <OperativePortal role={role as "Coordinador" | "Chofer" | "Auxiliar"} session={session} />;
   return <div className="app-shell"><Sidebar role={role} view={view} setView={setView} onSignOut={signOut} /><div className="main-area"><Header role={role} email={session.user.email ?? "Usuario DCS"} />{content}</div></div>;
 }
