@@ -9,7 +9,7 @@ type Role = "Coordinador" | "Chofer" | "Auxiliar";
 type Service = { id:string; service_date:string; scheduled_start:string|null; status:string; origin:string|null; destination:string|null; merchandise:string|null; km_start:number|null; km_end:number|null; vehicle_id:string|null; clients:{name:string}|null; vehicles:{name:string;plate:string}|null };
 type Action = "km" | "fuel" | "expense" | "finding" | "detail" | "progress" | null;
 
-export function OperativePortal({ role, session }: { role: Role; session: Session }) {
+export function OperativePortal({ role, session, initialAction=null }: { role: Role; session: Session; initialAction?: Action }) {
   const [services, setServices] = useState<Service[]>([]);
   const [shift, setShift] = useState<{id:string;clock_in:string;clock_out:string|null}|null>(null);
   const [loading, setLoading] = useState(true);
@@ -34,6 +34,7 @@ export function OperativePortal({ role, session }: { role: Role; session: Sessio
   }, [session.user.id, today]);
 
   useEffect(() => { void loadData(); }, [loadData]);
+  useEffect(() => { if (initialAction) open(initialAction); }, [initialAction]);
   const activeShift = Boolean(shift?.clock_in && !shift.clock_out);
   const completed = services.filter(s => s.status === "Completado").length;
   const elapsed = useMemo(() => shift?.clock_in ? Math.max(0, Date.now() - new Date(shift.clock_in).getTime()) : 0, [shift]);

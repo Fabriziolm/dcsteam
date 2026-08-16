@@ -35,6 +35,7 @@ import { ServicesManagement } from "./services-management";
 import { OperativePortal } from "./operative-portal";
 import { BillingManagement, ExpensesManagement, FleetManagement } from "./admin-modules";
 import { LiveOwnerDashboard } from "./owner-dashboard";
+import { FindingsManagement, HoursManagement, TeamDirectory } from "./workforce-modules";
 import { isSupabaseConfigured, supabase } from "../lib/supabase";
 
 type Role = "Propietario" | "Administrador" | "Coordinador" | "Chofer" | "Auxiliar";
@@ -94,11 +95,21 @@ function Sidebar({ role, view, setView, onSignOut }: { role: Role; view: string;
 }
 
 function Header({ role, email }: { role: Role; email: string }) {
+  const [open, setOpen] = useState(false);
+  const [notices, setNotices] = useState({ findings: 0, expenses: 0 });
+  useEffect(() => {
+    if (!supabase) return;
+    void Promise.all([
+      supabase.from("findings").select("id", { count: "exact", head: true }).in("status", ["Abierto", "En revisión"]),
+      supabase.from("expenses").select("id", { count: "exact", head: true }).eq("status", "Pendiente"),
+    ]).then(([a, b]) => setNotices({ findings: a.count ?? 0, expenses: b.count ?? 0 }));
+  }, []);
+  const total = notices.findings + notices.expenses;
   return (
     <header className="topbar">
       <div><span className="eyebrow">SÁBADO, 15 DE AGOSTO</span><h1>{role === "Propietario" ? "Resumen ejecutivo" : role === "Administrador" ? "Panel administrativo" : `Portal de ${role.toLowerCase()}`}</h1></div>
       <div className="header-actions">
-        <button className="icon-button"><Bell size={21} /><i>3</i></button>
+        <div className="notification-wrap"><button className="icon-button" onClick={() => setOpen(!open)} aria-label="Notificaciones"><Bell size={21} />{total > 0 && <i>{total}</i>}</button>{open && <div className="notification-menu"><strong>Notificaciones</strong><div><WarningCircle size={18}/><span><b>{notices.findings} incidencias</b> abiertas o en revisión</span></div><div><Receipt size={18}/><span><b>{notices.expenses} gastos</b> pendientes de revisión</span></div>{total === 0 && <small>Todo está al día.</small>}</div>}</div>
         <div className="role-picker"><UserCircle size={26} weight="duotone" /><div><span>{email}</span><strong>{role}</strong></div></div>
       </div>
     </header>
@@ -178,6 +189,11 @@ function Dashboard({ session }: { session: Session }) {
   const signOut = () => { void supabase?.auth.signOut(); };
   const content = owner && view === "Equipo" ? <TeamManagement />
     : operationsManager && view === "Operaciones" ? <ServicesManagement />
+    : role === "Coordinador" && view === "Servicios" ? <ServicesManagement />
+    : role === "Coordinador" && view === "Equipo" ? <TeamDirectory />
+    : view === "Incidencias" ? <FindingsManagement canManage={operationsManager} />
+    : !operationsManager && view === "Mis horas" ? <HoursManagement />
+    : !operationsManager && view === "Registrar gasto" ? <OperativePortal role={role as "Chofer" | "Auxiliar"} session={session} initialAction="expense" />
     : owner && view === "Facturación" ? <BillingManagement />
     : owner && view === "Caja y gastos" ? <ExpensesManagement />
     : owner && view === "Flota" ? <FleetManagement />
