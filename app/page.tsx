@@ -27,7 +27,10 @@ import {
   Users,
   WarningCircle,
 } from "@phosphor-icons/react";
-import { useState } from "react";
+import type { Session } from "@supabase/supabase-js";
+import { useEffect, useState } from "react";
+import { LoginScreen } from "./login-screen";
+import { isSupabaseConfigured, supabase } from "../lib/supabase";
 
 type Role = "Propietario" | "Administrador" | "Coordinador" | "Chofer" | "Auxiliar";
 
@@ -57,7 +60,7 @@ function Brand() {
   );
 }
 
-function Sidebar({ role, view, setView }: { role: Role; view: string; setView: (v: string) => void }) {
+function Sidebar({ role, view, setView, onSignOut }: { role: Role; view: string; setView: (v: string) => void; onSignOut: () => void }) {
   const owner = role === "Propietario" || role === "Administrador";
   const items = owner
     ? [["Resumen", House], ["Operaciones", SteeringWheel], ["Facturación", Receipt], ["Caja y gastos", CurrencyDollar], ["Flota", Car], ["Equipo", Users]]
@@ -76,19 +79,19 @@ function Sidebar({ role, view, setView }: { role: Role; view: string; setView: (
       <div className="sidebar-bottom">
         <div className="support"><ShieldCheck size={22} /><div><strong>Operación protegida</strong><span>Última sincronización: ahora</span></div></div>
         <div className="social-links"><a href="https://www.instagram.com/dcs_xpress/" target="_blank" rel="noreferrer" aria-label="Instagram"><InstagramLogo size={18} /></a><a href="https://www.linkedin.com/in/express-by-dcs-company-33abbb2b1/" target="_blank" rel="noreferrer" aria-label="LinkedIn"><LinkedinLogo size={18} /></a><span>@dcs_xpress</span></div>
-        <button className="logout"><SignOut size={19} /> Cerrar sesión</button>
+        <button className="logout" onClick={onSignOut}><SignOut size={19} /> Cerrar sesión</button>
       </div>
     </aside>
   );
 }
 
-function Header({ role, setRole }: { role: Role; setRole: (r: Role) => void }) {
+function Header({ role, email }: { role: Role; email: string }) {
   return (
     <header className="topbar">
       <div><span className="eyebrow">SÁBADO, 15 DE AGOSTO</span><h1>{role === "Propietario" ? "Resumen ejecutivo" : role === "Administrador" ? "Panel administrativo" : `Portal de ${role.toLowerCase()}`}</h1></div>
       <div className="header-actions">
         <button className="icon-button"><Bell size={21} /><i>3</i></button>
-        <label className="role-picker"><UserCircle size={26} weight="duotone" /><div><span>Vista actual</span><select value={role} onChange={(e) => setRole(e.target.value as Role)}>{roles.map(r => <option key={r}>{r}</option>)}</select></div><CaretDown size={14} /></label>
+        <div className="role-picker"><UserCircle size={26} weight="duotone" /><div><span>{email}</span><strong>{role}</strong></div></div>
       </div>
     </header>
   );
@@ -154,10 +157,31 @@ function OperativePortal({ role }: { role: Role }) {
   );
 }
 
-export default function App() {
-  const [role, setRole] = useState<Role>("Propietario");
+function roleFromSession(session: Session): Role {
+  const requested = session.user.user_metadata?.role as string | undefined;
+  return roles.includes(requested as Role) ? requested as Role : "Chofer";
+}
+
+function Dashboard({ session }: { session: Session }) {
+  const role = roleFromSession(session);
   const owner = role === "Propietario" || role === "Administrador";
-  const [view, setView] = useState("Resumen");
-  const changeRole = (r: Role) => { setRole(r); setView(r === "Propietario" || r === "Administrador" ? "Resumen" : "Mi jornada"); };
-  return <div className="app-shell"><Sidebar role={role} view={view} setView={setView} /><div className="main-area"><Header role={role} setRole={changeRole} />{owner ? <OwnerDashboard /> : <OperativePortal role={role} />}</div></div>;
+  const [view, setView] = useState(owner ? "Resumen" : "Mi jornada");
+  const signOut = () => { void supabase?.auth.signOut(); };
+  return <div className="app-shell"><Sidebar role={role} view={view} setView={setView} onSignOut={signOut} /><div className="main-area"><Header role={role} email={session.user.email ?? "Usuario DCS"} />{owner ? <OwnerDashboard /> : <OperativePortal role={role} />}</div></div>;
+}
+
+export default function App() {
+  const [session, setSession] = useState<Session | null>(null);
+  const [loading, setLoading] = useState(isSupabaseConfigured);
+
+  useEffect(() => {
+    if (!supabase) return;
+    void supabase.auth.getSession().then(({ data }) => { setSession(data.session); setLoading(false); });
+    const { data } = supabase.auth.onAuthStateChange((_event, nextSession) => setSession(nextSession));
+    return () => data.subscription.unsubscribe();
+  }, []);
+
+  if (loading) return <div className="auth-loading"><img src="./dcs-logo.png" alt="Express" /><span>Validando sesión…</span></div>;
+  if (!session) return <LoginScreen />;
+  return <Dashboard session={session} />;
 }
