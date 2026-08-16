@@ -4,7 +4,7 @@ import { CheckCircle, SpinnerGap, UserCircle, Users, WarningCircle } from "@phos
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
 
-type StaffProfile = { id: string; email: string | null; full_name: string | null; active: boolean; created_at: string };
+type StaffProfile = { id: string; email: string | null; full_name: string | null; active: boolean; role: string; created_at: string };
 const assignableRoles = ["Administrador", "Coordinador", "Chofer", "Auxiliar"];
 
 export function TeamManagement() {
@@ -17,9 +17,9 @@ export function TeamManagement() {
   const loadProfiles = useCallback(async () => {
     if (!supabase) return;
     setLoading(true);
-    const { data, error: queryError } = await supabase.from("profiles").select("id,email,full_name,active,created_at").order("created_at", { ascending: false });
-    if (queryError) setError("No se pudo cargar el equipo. Verifica que la migración operativa esté aplicada.");
-    else setProfiles(data ?? []);
+    const { data, error: queryError } = await supabase.rpc("admin_list_users");
+    if (queryError) setError(`No se pudo cargar el equipo: ${queryError.message}`);
+    else { const users=(data ?? []) as StaffProfile[]; setProfiles(users); setRoles(Object.fromEntries(users.map(user=>[user.id,user.role==="Sin cargo"?"Chofer":user.role]))); }
     setLoading(false);
   }, []);
 
@@ -31,6 +31,15 @@ export function TeamManagement() {
     setError("");
     const { error: approveError } = await supabase.rpc("approve_user", { target_user_id: profile.id, new_role: roles[profile.id] ?? "Chofer" });
     if (approveError) setError(`No se pudo aprobar a ${profile.email ?? "este usuario"}: ${approveError.message}`);
+    else await loadProfiles();
+    setWorkingId("");
+  }
+
+  async function manage(profile: StaffProfile, nextActive: boolean) {
+    if (!supabase) return;
+    setWorkingId(profile.id); setError("");
+    const { error: manageError } = await supabase.rpc("manage_user_access", { target_user_id: profile.id, new_role: roles[profile.id] ?? profile.role, new_active: nextActive });
+    if (manageError) setError(`No se pudo actualizar a ${profile.email ?? "este usuario"}: ${manageError.message}`);
     else await loadProfiles();
     setWorkingId("");
   }
@@ -49,7 +58,7 @@ export function TeamManagement() {
         </article>
         <article className="panel team-panel">
           <div className="panel-title"><div><span>PERSONAL</span><h3>Usuarios activos</h3></div><b className="count-badge active-count">{active.length}</b></div>
-          {active.map((profile) => <div className="staff-row active-staff" key={profile.id}><UserCircle size={34} weight="duotone" /><div className="staff-identity"><strong>{profile.full_name || "Usuario DCS"}</strong><span>{profile.email}</span></div><b className="status green-status">Activo</b></div>)}
+          {active.map((profile) => <div className="staff-row active-staff" key={profile.id}><UserCircle size={34} weight="duotone" /><div className="staff-identity"><strong>{profile.full_name || "Usuario DCS"}</strong><span>{profile.email}</span></div><select value={roles[profile.id] ?? profile.role} onChange={(event) => setRoles({ ...roles, [profile.id]: event.target.value })}>{assignableRoles.map((role) => <option key={role}>{role}</option>)}</select><button className="approve-button" disabled={workingId===profile.id} onClick={()=>void manage(profile,true)}>{workingId===profile.id?"Guardando…":"Guardar"}</button><button className="deactivate-button" disabled={workingId===profile.id} onClick={()=>void manage(profile,false)}>Desactivar</button></div>)}
         </article>
       </section>
     </main>

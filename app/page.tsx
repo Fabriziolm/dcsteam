@@ -33,7 +33,7 @@ import { LoginScreen } from "./login-screen";
 import { PendingApproval, TeamManagement } from "./team-management";
 import { ServicesManagement } from "./services-management";
 import { OperativePortal } from "./operative-portal";
-import { BillingManagement, ExpensesManagement, FleetManagement } from "./admin-modules";
+import { BillingManagement, ClientsManagement, ExpensesManagement, FleetManagement } from "./admin-modules";
 import { LiveOwnerDashboard } from "./owner-dashboard";
 import { FindingsManagement, HoursManagement, TeamDirectory } from "./workforce-modules";
 import { isSupabaseConfigured, supabase } from "../lib/supabase";
@@ -69,7 +69,7 @@ function Brand() {
 function Sidebar({ role, view, setView, onSignOut }: { role: Role; view: string; setView: (v: string) => void; onSignOut: () => void }) {
   const owner = role === "Propietario" || role === "Administrador";
   const items = owner
-    ? [["Resumen", House], ["Operaciones", SteeringWheel], ["Facturación", Receipt], ["Caja y gastos", CurrencyDollar], ["Flota", Car], ["Equipo", Users]]
+    ? [["Resumen", House], ["Operaciones", SteeringWheel], ["Clientes", Buildings], ["Facturación", Receipt], ["Caja y gastos", CurrencyDollar], ["Flota", Car], ["Equipo", Users]]
     : [["Mi jornada", House], ["Servicios", CalendarCheck], ["Registrar gasto", Receipt], ["Mis horas", Clock], ["Incidencias", WarningCircle]];
   const visibleItems = role === "Coordinador"
     ? [["Operaciones", SteeringWheel], ["Servicios", CalendarCheck], ["Equipo", Users], ["Incidencias", WarningCircle]]
@@ -195,6 +195,7 @@ function Dashboard({ session }: { session: Session }) {
     : !operationsManager && view === "Mis horas" ? <HoursManagement />
     : !operationsManager && view === "Registrar gasto" ? <OperativePortal role={role as "Chofer" | "Auxiliar"} session={session} initialAction="expense" />
     : owner && view === "Facturación" ? <BillingManagement />
+    : owner && view === "Clientes" ? <ClientsManagement />
     : owner && view === "Caja y gastos" ? <ExpensesManagement />
     : owner && view === "Flota" ? <FleetManagement />
     : owner ? <LiveOwnerDashboard />
