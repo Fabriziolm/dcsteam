@@ -30,6 +30,7 @@ import {
 import type { Session } from "@supabase/supabase-js";
 import { useEffect, useState } from "react";
 import { LoginScreen } from "./login-screen";
+import { PendingApproval, TeamManagement } from "./team-management";
 import { isSupabaseConfigured, supabase } from "../lib/supabase";
 
 type Role = "Propietario" | "Administrador" | "Coordinador" | "Chofer" | "Auxiliar";
@@ -167,21 +168,30 @@ function Dashboard({ session }: { session: Session }) {
   const owner = role === "Propietario" || role === "Administrador";
   const [view, setView] = useState(owner ? "Resumen" : "Mi jornada");
   const signOut = () => { void supabase?.auth.signOut(); };
-  return <div className="app-shell"><Sidebar role={role} view={view} setView={setView} onSignOut={signOut} /><div className="main-area"><Header role={role} email={session.user.email ?? "Usuario DCS"} />{owner ? <OwnerDashboard /> : <OperativePortal role={role} />}</div></div>;
+  const content = owner && view === "Equipo" ? <TeamManagement /> : owner ? <OwnerDashboard /> : <OperativePortal role={role} />;
+  return <div className="app-shell"><Sidebar role={role} view={view} setView={setView} onSignOut={signOut} /><div className="main-area"><Header role={role} email={session.user.email ?? "Usuario DCS"} />{content}</div></div>;
 }
 
 export default function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(isSupabaseConfigured);
+  const [active, setActive] = useState<boolean | null>(null);
 
   useEffect(() => {
     if (!supabase) return;
     void supabase.auth.getSession().then(({ data }) => { setSession(data.session); setLoading(false); });
-    const { data } = supabase.auth.onAuthStateChange((_event, nextSession) => setSession(nextSession));
+    const { data } = supabase.auth.onAuthStateChange((_event, nextSession) => { setSession(nextSession); setActive(null); });
     return () => data.subscription.unsubscribe();
   }, []);
 
+  useEffect(() => {
+    if (!supabase || !session) return;
+    void supabase.from("profiles").select("active").eq("id", session.user.id).single().then(({ data, error }) => setActive(error ? true : Boolean(data?.active)));
+  }, [session]);
+
   if (loading) return <div className="auth-loading"><img src="./dcs-logo.png" alt="Express" /><span>Validando sesión…</span></div>;
   if (!session) return <LoginScreen />;
+  if (active === null) return <div className="auth-loading"><img src="./dcs-logo.png" alt="Express" /><span>Validando permisos…</span></div>;
+  if (!active) return <PendingApproval email={session.user.email ?? "Usuario DCS"} onSignOut={() => { void supabase?.auth.signOut(); }} />;
   return <Dashboard session={session} />;
 }
