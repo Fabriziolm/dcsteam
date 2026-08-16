@@ -158,7 +158,7 @@ function OperativePortal({ role }: { role: Role }) {
 }
 
 function roleFromSession(session: Session): Role {
-  const requested = session.user.user_metadata?.role as string | undefined;
+  const requested = session.user.app_metadata?.role as string | undefined;
   return roles.includes(requested as Role) ? requested as Role : "Chofer";
 }
 

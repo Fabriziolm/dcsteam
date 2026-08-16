@@ -18,3 +18,5 @@ Abrir `http://localhost:3000` y usar el selector superior para probar las vistas
 ## Siguiente etapa
 
 Conectar autenticación, permisos por rol y sincronización de las hojas operativas mediante una base de datos en tiempo real. Los indicadores actuales son datos demostrativos y serán reemplazados por las fuentes validadas.
+
+Los cargos de acceso se guardan en `auth.users.raw_app_meta_data.role`. Valores admitidos: `Propietario`, `Administrador`, `Coordinador`, `Chofer` y `Auxiliar`.
