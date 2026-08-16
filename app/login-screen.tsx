@@ -1,6 +1,6 @@
 "use client";
 
-import { Envelope, Eye, EyeSlash, Lock, SignIn, UserPlus, WarningCircle } from "@phosphor-icons/react";
+import { Envelope, Eye, EyeSlash, FacebookLogo, GoogleLogo, Lock, SignIn, UserPlus, WarningCircle } from "@phosphor-icons/react";
 import { FormEvent, useState } from "react";
 import { isSupabaseConfigured, supabase } from "../lib/supabase";
 
@@ -58,6 +58,18 @@ export function LoginScreen() {
     setLoading(false);
   }
 
+  async function signInWithProvider(provider: "google" | "facebook") {
+    if (!supabase) return;
+    setLoading(true);
+    setError("");
+    const redirectTo = `${window.location.origin}${window.location.pathname}`;
+    const { error: oauthError } = await supabase.auth.signInWithOAuth({ provider, options: { redirectTo } });
+    if (oauthError) {
+      setError(`No se pudo iniciar con ${provider === "google" ? "Google" : "Facebook"}: ${oauthError.message}`);
+      setLoading(false);
+    }
+  }
+
   return (
     <main className="login-page">
       <section className="login-brand-panel">
@@ -81,6 +93,12 @@ export function LoginScreen() {
           <p>{mode === "login" ? "Ingresa con tu cuenta corporativa para continuar." : "Crea tu cuenta. Un administrador podrá asignarte el cargo correspondiente."}</p>
 
           {!isSupabaseConfigured && <div className="login-config-warning"><WarningCircle size={20} /><span>Falta conectar la URL y la clave pública del proyecto Supabase.</span></div>}
+
+          <div className="social-auth">
+            <button type="button" onClick={() => void signInWithProvider("google")} disabled={!isSupabaseConfigured || loading}><GoogleLogo size={20} weight="bold" /> Continuar con Google</button>
+            <button type="button" onClick={() => void signInWithProvider("facebook")} disabled={!isSupabaseConfigured || loading}><FacebookLogo size={20} weight="fill" /> Continuar con Facebook</button>
+          </div>
+          <div className="auth-divider"><span>o continúa con correo</span></div>
 
           {mode === "signup" && <label>Nombre completo<div className="login-input"><UserPlus size={19} /><input type="text" value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="Nombre y apellido" autoComplete="name" required /></div></label>}
           <label>Correo electrónico<div className="login-input"><Envelope size={19} /><input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="nombre@empresa.com" autoComplete="email" required /></div></label>
