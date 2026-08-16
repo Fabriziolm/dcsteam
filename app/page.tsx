@@ -31,6 +31,7 @@ import type { Session } from "@supabase/supabase-js";
 import { useEffect, useState } from "react";
 import { LoginScreen } from "./login-screen";
 import { PendingApproval, TeamManagement } from "./team-management";
+import { ServicesManagement } from "./services-management";
 import { isSupabaseConfigured, supabase } from "../lib/supabase";
 
 type Role = "Propietario" | "Administrador" | "Coordinador" | "Chofer" | "Auxiliar";
@@ -66,12 +67,15 @@ function Sidebar({ role, view, setView, onSignOut }: { role: Role; view: string;
   const items = owner
     ? [["Resumen", House], ["Operaciones", SteeringWheel], ["Facturación", Receipt], ["Caja y gastos", CurrencyDollar], ["Flota", Car], ["Equipo", Users]]
     : [["Mi jornada", House], ["Servicios", CalendarCheck], ["Registrar gasto", Receipt], ["Mis horas", Clock], ["Incidencias", WarningCircle]];
+  const visibleItems = role === "Coordinador"
+    ? [["Operaciones", SteeringWheel], ["Servicios", CalendarCheck], ["Equipo", Users], ["Incidencias", WarningCircle]]
+    : items;
   return (
     <aside className="sidebar">
       <Brand />
       <nav>
         <span className="nav-label">MENÚ PRINCIPAL</span>
-        {items.map(([label, Icon]) => (
+        {visibleItems.map(([label, Icon]) => (
           <button key={label as string} className={view === label ? "active" : ""} onClick={() => setView(label as string)}>
             <Icon size={20} weight={view === label ? "fill" : "regular"} />{label as string}
           </button>
@@ -166,9 +170,10 @@ function roleFromSession(session: Session): Role {
 function Dashboard({ session }: { session: Session }) {
   const role = roleFromSession(session);
   const owner = role === "Propietario" || role === "Administrador";
-  const [view, setView] = useState(owner ? "Resumen" : "Mi jornada");
+  const operationsManager = owner || role === "Coordinador";
+  const [view, setView] = useState(owner ? "Resumen" : role === "Coordinador" ? "Operaciones" : "Mi jornada");
   const signOut = () => { void supabase?.auth.signOut(); };
-  const content = owner && view === "Equipo" ? <TeamManagement /> : owner ? <OwnerDashboard /> : <OperativePortal role={role} />;
+  const content = owner && view === "Equipo" ? <TeamManagement /> : operationsManager && view === "Operaciones" ? <ServicesManagement /> : owner ? <OwnerDashboard /> : <OperativePortal role={role} />;
   return <div className="app-shell"><Sidebar role={role} view={view} setView={setView} onSignOut={signOut} /><div className="main-area"><Header role={role} email={session.user.email ?? "Usuario DCS"} />{content}</div></div>;
 }
 
