@@ -119,10 +119,11 @@ export function OperativePortal({
           .eq("active", true)
           .order("name"),
         supabase
-          .from("vehicles")
-          .select("id,name,plate")
+          .from("user_vehicle_assignments")
+          .select("vehicle_id,vehicles(id,name,plate)")
+          .eq("user_id", session.user.id)
           .eq("active", true)
-          .order("plate"),
+          .maybeSingle(),
       ]);
     if (
       serviceResult.error ||
@@ -156,7 +157,8 @@ export function OperativePortal({
             ),
         ) as Client[],
       );
-      setVehicles((vehicleResult.data || []) as Vehicle[]);
+      const assignedVehicle = vehicleResult.data?.vehicles as unknown as Vehicle | null;
+      setVehicles(assignedVehicle ? [assignedVehicle] : []);
     }
     setLoading(false);
   }, [session.user.id, today]);
@@ -192,7 +194,7 @@ export function OperativePortal({
       ...f,
       service_id: service?.id || "",
       client_id: "",
-      vehicle_id: service?.vehicle_id || "",
+      vehicle_id: service?.vehicle_id || vehicles[0]?.id || "",
       km: "",
       amount: "",
       concept: "",
@@ -227,6 +229,7 @@ export function OperativePortal({
         ? await supabase.from("time_entries").update({ clock_out:new Date().toISOString(), clock_out_lat:location.latitude, clock_out_lng:location.longitude, clock_out_accuracy:location.accuracy, clock_out_photo:evidencePath, status:"Cerrada", updated_at:new Date().toISOString() }).eq("id",shift.id)
         : await supabase.from("time_entries").insert({ user_id:session.user.id, work_date:today, clock_in:new Date().toISOString(), clock_in_lat:location.latitude, clock_in_lng:location.longitude, clock_in_accuracy:location.accuracy, clock_in_photo:evidencePath, status:"Abierta" });
     } else if (action === "fuel" || action === "expense") {
+      if (!form.vehicle_id) { setError("Administración debe asignarte una unidad antes de registrar gastos."); setSaving(false); return; }
       const amount = Number(form.amount);
       if (!Number.isFinite(amount) || amount <= 0 || amount > 10000) { setError("El importe debe ser mayor a S/ 0 y menor o igual a S/ 10,000."); setSaving(false); return; }
       if (form.concept.trim().length < 4) { setError("Describe mejor el concepto del gasto."); setSaving(false); return; }
@@ -570,20 +573,7 @@ export function OperativePortal({
                     </label>
                     <label>
                       Unidad
-                      <select
-                        required
-                        value={form.vehicle_id}
-                        onChange={(e) =>
-                          setForm({ ...form, vehicle_id: e.target.value })
-                        }
-                      >
-                        <option value="">Seleccionar unidad</option>
-                        {vehicles.map((vehicle) => (
-                          <option key={vehicle.id} value={vehicle.id}>
-                            {vehicle.name} · {vehicle.plate}
-                          </option>
-                        ))}
-                      </select>
+                      {vehicles.length ? <div className="assigned-unit"><Car size={18}/><strong>{vehicles[0].name} · {vehicles[0].plate}</strong><small>Unidad asignada por administración</small></div> : <div className="module-error">No tienes una unidad asignada. Comunícate con administración.</div>}
                     </label>
                     <label>
                       Tipo
