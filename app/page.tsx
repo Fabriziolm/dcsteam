@@ -105,9 +105,10 @@ function Header({ role, email }: { role: Role; email: string }) {
     ]).then(([a, b]) => setNotices({ findings: a.count ?? 0, expenses: b.count ?? 0 }));
   }, []);
   const total = notices.findings + notices.expenses;
+  const todayLabel = new Intl.DateTimeFormat("es-PE", { weekday: "long", day: "numeric", month: "long", year: "numeric" }).format(new Date()).toLocaleUpperCase("es-PE");
   return (
     <header className="topbar">
-      <div><span className="eyebrow">SÁBADO, 15 DE AGOSTO</span><h1>{role === "Propietario" ? "Resumen ejecutivo" : role === "Administrador" ? "Panel administrativo" : `Portal de ${role.toLowerCase()}`}</h1></div>
+      <div><span className="eyebrow">{todayLabel}</span><h1>{role === "Propietario" ? "Resumen ejecutivo" : role === "Administrador" ? "Panel administrativo" : `Portal de ${role.toLowerCase()}`}</h1></div>
       <div className="header-actions">
         <div className="notification-wrap"><button className="icon-button" onClick={() => setOpen(!open)} aria-label="Notificaciones"><Bell size={21} />{total > 0 && <i>{total}</i>}</button>{open && <div className="notification-menu"><strong>Notificaciones</strong><div><WarningCircle size={18}/><span><b>{notices.findings} incidencias</b> abiertas o en revisión</span></div><div><Receipt size={18}/><span><b>{notices.expenses} gastos</b> pendientes de revisión</span></div>{total === 0 && <small>Todo está al día.</small>}</div>}</div>
         <div className="role-picker"><UserCircle size={26} weight="duotone" /><div><span>{email}</span><strong>{role}</strong></div></div>
