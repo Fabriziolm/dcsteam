@@ -1,6 +1,6 @@
 "use client";
 
-import { Car, CheckCircle, CurrencyDollar, Plus, Receipt, SpinnerGap, WarningCircle } from "@phosphor-icons/react";
+import { Car, CheckCircle, CurrencyDollar, DownloadSimple, Plus, Receipt, SpinnerGap, WarningCircle } from "@phosphor-icons/react";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
 
@@ -26,15 +26,38 @@ export function BillingManagement(){
 function DataTable({loading,empty,children}:{loading:boolean;empty:string;children:React.ReactNode}){return <section className="panel data-panel">{loading?<div className="empty-state"><SpinnerGap className="spin" size={28}/>Cargando…</div>:<div className="table-scroll"><table className="data-table">{children}</table></div>}</section>}
 
 export function ExpensesManagement(){
-  const [rows,setRows]=useState<Expense[]>([]),[loading,setLoading]=useState(true),[error,setError]=useState(""),[message,setMessage]=useState("");
+  const [rows,setRows]=useState<Expense[]>([]),[loading,setLoading]=useState(true),[downloading,setDownloading]=useState(false),[error,setError]=useState(""),[message,setMessage]=useState("");
   const load=useCallback(async()=>{if(!supabase)return;setLoading(true);const r=await supabase.from("expenses").select("id,expense_date,category,concept,amount,status,receipt_url,vehicles(name,plate)").eq("source_system","dcs_app").order("expense_date",{ascending:false}).limit(150);if(r.error)setError(r.error.message);else setRows((r.data||[]) as unknown as Expense[]);setLoading(false)},[]);useEffect(()=>{void load()},[load]);
   async function review(id:string,status:string){if(!supabase)return;const {data}=await supabase.auth.getUser();const r=await supabase.from("expenses").update({status,reviewed_by:data.user?.id,reviewed_at:new Date().toISOString(),updated_at:new Date().toISOString()}).eq("id",id);if(r.error)setError(r.error.message);else{setMessage(`Gasto ${status.toLowerCase()}.`);await load()}}
   async function openReceipt(path:string){if(!supabase)return;const {data,error:signError}=await supabase.storage.from("expense-receipts").createSignedUrl(path,60);if(signError)setError(signError.message);else window.open(data.signedUrl,"_blank","noopener,noreferrer")}
+  async function downloadWeeklyFolder(){
+    if(!supabase||downloading)return;setDownloading(true);setError("");
+    try{
+      const JSZip=(await import("jszip")).default,zip=new JSZip();
+      const receipts=weekly.filter(row=>Boolean(row.receipt_url));
+      const csv=["Fecha,Unidad,Categoria,Concepto,Importe,Estado,Archivo"];
+      for(const row of receipts){
+        const unit=(row.vehicles?.plate||"SIN-UNIDAD").replace(/[^a-z0-9-]/gi,"_");
+        const category=row.category.replace(/[^a-z0-9áéíóúñ-]/gi,"_");
+        const extension=row.receipt_url!.split(".").pop()||"jpg";
+        const filename=`${row.expense_date}_${row.id.slice(0,8)}.${extension}`;
+        const {data,error:signError}=await supabase.storage.from("expense-receipts").createSignedUrl(row.receipt_url!,300);
+        if(signError)throw signError;
+        const response=await fetch(data.signedUrl);if(!response.ok)throw new Error(`No se pudo descargar ${filename}`);
+        zip.file(`${unit}/${category}/${filename}`,await response.blob());
+        const values=[row.expense_date,row.vehicles?`${row.vehicles.name} ${row.vehicles.plate}`:"Sin unidad",row.category,row.concept,Number(row.amount).toFixed(2),row.status,`${unit}/${category}/${filename}`];
+        csv.push(values.map(value=>`"${String(value).replaceAll('"','""')}"`).join(","));
+      }
+      zip.file("resumen_gastos.csv","\uFEFF"+csv.join("\n"));
+      const blob=await zip.generateAsync({type:"blob"});const url=URL.createObjectURL(blob);const anchor=document.createElement("a");anchor.href=url;anchor.download=`DCS_comprobantes_semana_${weekStart.toISOString().slice(0,10)}.zip`;anchor.click();URL.revokeObjectURL(url);
+      setMessage(`Carpeta semanal generada con ${receipts.length} comprobantes.`);
+    }catch(cause){setError(cause instanceof Error?cause.message:"No se pudo generar la carpeta semanal.")}finally{setDownloading(false)}
+  }
   const total=rows.filter(r=>r.status!=="Rechazado").reduce((n,r)=>n+Number(r.amount),0);
   const weekStart=new Date();weekStart.setHours(0,0,0,0);weekStart.setDate(weekStart.getDate()-((weekStart.getDay()+6)%7));
   const weekly=rows.filter(r=>new Date(`${r.expense_date}T12:00:00`)>=weekStart&&r.status!=="Rechazado");
   const byVehicle=Object.entries(weekly.reduce<Record<string,number>>((summary,r)=>{const unit=r.vehicles?`${r.vehicles.name} · ${r.vehicles.plate}`:"Sin unidad";summary[unit]=(summary[unit]||0)+Number(r.amount);return summary},{}));
-  return <main className="content"><section className="welcome"><div><span className="live-dot">GASTOS DESDE LA APP</span><h2>Gastos operativos</h2><p>Comprobantes enviados por choferes y auxiliares. Esta información no se envía a Google Sheets.</p></div></section><Notice error={error} message={message}/><section className="metrics-grid compact"><article className="metric blue"><span>Total registrado en la app</span><strong>S/ {total.toLocaleString("es-PE",{minimumFractionDigits:2})}</strong></article><article className="metric amber"><span>Pendientes de revisión</span><strong>{rows.filter(r=>r.status==="Pendiente").length}</strong></article></section><section className="panel weekly-expense-panel"><div className="panel-title"><div><span>SEMANA ACTUAL</span><h3>Gasto por unidad</h3></div></div><div className="fleet-grid">{byVehicle.length?byVehicle.map(([unit,amount])=><article className="weekly-expense" key={unit}><Car size={24}/><div><span>{unit}</span><strong>S/ {amount.toLocaleString("es-PE",{minimumFractionDigits:2})}</strong></div></article>):<div className="empty-state">Todavía no hay gastos esta semana.</div>}</div></section><DataTable loading={loading} empty="No hay gastos enviados desde la app."><thead><tr><th>Fecha</th><th>Categoría</th><th>Concepto</th><th>Unidad</th><th>Importe</th><th>Comprobante</th><th>Revisión</th></tr></thead><tbody>{rows.map(r=><tr key={r.id}><td>{r.expense_date}</td><td>{r.category}</td><td>{r.concept}</td><td>{r.vehicles?`${r.vehicles.name} · ${r.vehicles.plate}`:"—"}</td><td>S/ {Number(r.amount).toFixed(2)}</td><td>{r.receipt_url?<button className="receipt-link" onClick={()=>void openReceipt(r.receipt_url!)}>Ver foto</button>:"—"}</td><td>{r.status==="Pendiente"?<div className="row-actions"><button onClick={()=>void review(r.id,"Aprobado")}>Aprobar</button><button className="reject" onClick={()=>void review(r.id,"Rechazado")}>Rechazar</button></div>:<b className="table-status">{r.status}</b>}</td></tr>)}</tbody></DataTable></main>
+  return <main className="content"><section className="welcome"><div><span className="live-dot">GASTOS DESDE LA APP</span><h2>Gastos operativos</h2><p>Comprobantes enviados por choferes y auxiliares. Esta información no se envía a Google Sheets.</p></div><button className="primary" disabled={downloading||weekly.length===0} onClick={()=>void downloadWeeklyFolder()}>{downloading?<SpinnerGap className="spin" size={19}/>:<DownloadSimple size={19}/>} {downloading?"Preparando ZIP…":"Descargar carpeta semanal"}</button></section><Notice error={error} message={message}/><section className="metrics-grid compact"><article className="metric blue"><span>Total registrado en la app</span><strong>S/ {total.toLocaleString("es-PE",{minimumFractionDigits:2})}</strong></article><article className="metric amber"><span>Pendientes de revisión</span><strong>{rows.filter(r=>r.status==="Pendiente").length}</strong></article></section><section className="panel weekly-expense-panel"><div className="panel-title"><div><span>SEMANA ACTUAL</span><h3>Gasto por unidad</h3></div></div><div className="fleet-grid">{byVehicle.length?byVehicle.map(([unit,amount])=><article className="weekly-expense" key={unit}><Car size={24}/><div><span>{unit}</span><strong>S/ {amount.toLocaleString("es-PE",{minimumFractionDigits:2})}</strong></div></article>):<div className="empty-state">Todavía no hay gastos esta semana.</div>}</div></section><DataTable loading={loading} empty="No hay gastos enviados desde la app."><thead><tr><th>Fecha</th><th>Categoría</th><th>Concepto</th><th>Unidad</th><th>Importe</th><th>Comprobante</th><th>Revisión</th></tr></thead><tbody>{rows.map(r=><tr key={r.id}><td>{r.expense_date}</td><td>{r.category}</td><td>{r.concept}</td><td>{r.vehicles?`${r.vehicles.name} · ${r.vehicles.plate}`:"—"}</td><td>S/ {Number(r.amount).toFixed(2)}</td><td>{r.receipt_url?<button className="receipt-link" onClick={()=>void openReceipt(r.receipt_url!)}>Ver foto</button>:"—"}</td><td>{r.status==="Pendiente"?<div className="row-actions"><button onClick={()=>void review(r.id,"Aprobado")}>Aprobar</button><button className="reject" onClick={()=>void review(r.id,"Rechazado")}>Rechazar</button></div>:<b className="table-status">{r.status}</b>}</td></tr>)}</tbody></DataTable></main>
 }
 
 export function FleetManagement(){
