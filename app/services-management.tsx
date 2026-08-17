@@ -24,7 +24,7 @@ export function ServicesManagement() {
   const [showForm, setShowForm] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
-  const [form, setForm] = useState({ service_date: new Date().toISOString().slice(0, 10), client_id: "", vehicle_id: "", merchandise: "", origin: "", destination: "", scheduled_start: "", driver_id: "", assistant_id: "" });
+  const [form, setForm] = useState({ service_date: new Date().toISOString().slice(0, 10), client_id: "", vehicle_id: "", merchandise: "", origin: "", destination: "", delivery_points: "1", scheduled_start: "", driver_id: "", assistant_id: "" });
 
   const loadData = useCallback(async () => {
     if (!supabase) return;
@@ -79,7 +79,7 @@ export function ServicesManagement() {
     const { data: authData } = await supabase.auth.getUser();
     const { data, error: serviceError } = await supabase.from("services").insert({
       service_date: form.service_date, client_id: form.client_id, vehicle_id: form.vehicle_id || null,
-      merchandise: form.merchandise || null, origin: form.origin || null, destination: form.destination || null,
+      merchandise: form.merchandise || null, origin: form.origin || null, destination: form.destination || null, delivery_points: Math.max(1,Number(form.delivery_points)||1),
       scheduled_start: form.scheduled_start || null, status: "Programado", created_by: authData.user?.id,
     }).select("id").single();
     if (serviceError || !data) {
@@ -94,7 +94,7 @@ export function ServicesManagement() {
       }
       setShowForm(false);
       setMessage("Servicio creado y asignaciones guardadas correctamente.");
-      setForm({ ...form, merchandise: "", origin: "", destination: "", scheduled_start: "", driver_id: "", assistant_id: "" });
+      setForm({ ...form, merchandise: "", origin: "", destination: "", delivery_points: "1", scheduled_start: "", driver_id: "", assistant_id: "" });
       await loadData();
     }
     setSaving(false);
