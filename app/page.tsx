@@ -129,9 +129,8 @@ function Sidebar({
         ["Equipo", Users],
       ]
     : [
-        ["Mi jornada", House],
-        ["Servicios", CalendarCheck],
-        ["Registrar gasto", Receipt],
+        ["Mi ruta", House],
+        ["Gastos", Receipt],
         ["Mis horas", Clock],
         ["Incidencias", WarningCircle],
       ];
@@ -234,17 +233,12 @@ const searchEntries = [
     roles: ["Administrador"],
   },
   {
-    label: "Mi jornada",
-    keywords: "turno asistencia inicio trabajo",
+    label: "Mi ruta",
+    keywords: "turno asistencia inicio trabajo servicios asignados agenda rutas clientes",
     roles: ["Chofer", "Auxiliar"],
   },
   {
-    label: "Servicios",
-    keywords: "asignados agenda rutas clientes",
-    roles: ["Chofer", "Auxiliar"],
-  },
-  {
-    label: "Registrar gasto",
+    label: "Gastos",
     keywords: "gasolina combustible peaje estacionamiento comprobante",
     roles: ["Chofer", "Auxiliar"],
   },
@@ -818,7 +812,7 @@ function Dashboard({ session }: { session: Session }) {
   const role = roleFromSession(session);
   const owner = role === "Administrador";
   const operationsManager = owner;
-  const [view, setView] = useState(owner ? "Resumen" : "Mi jornada");
+  const [view, setView] = useState(owner ? "Resumen" : "Mi ruta");
   const signOut = () => {
     void supabase?.auth.signOut();
   };
@@ -835,7 +829,7 @@ function Dashboard({ session }: { session: Session }) {
       <FindingsManagement canManage={operationsManager} />
     ) : !operationsManager && view === "Mis horas" ? (
       <HoursManagement />
-    ) : !operationsManager && view === "Registrar gasto" ? (
+    ) : !operationsManager && view === "Gastos" ? (
       <OperativePortal
         role={role as "Chofer" | "Auxiliar"}
         session={session}

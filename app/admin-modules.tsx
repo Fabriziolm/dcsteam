@@ -444,6 +444,12 @@ export function ExpensesManagement() {
       return summary;
     }, {}),
   );
+  const byCategory = Object.entries(weekly.reduce<Record<string, number>>((summary, row) => { summary[row.category] = (summary[row.category] || 0) + Number(row.amount); return summary; }, {})).sort((a,b)=>b[1]-a[1]);
+  const weeklyTotal = weekly.reduce((sum,row)=>sum+Number(row.amount),0);
+  const previousWeekStart = new Date(weekStart); previousWeekStart.setDate(previousWeekStart.getDate()-7);
+  const previousTotal = rows.filter(row=>{const date=new Date(`${row.expense_date}T12:00:00`);return date>=previousWeekStart&&date<weekStart&&row.status!=="Rechazado"}).reduce((sum,row)=>sum+Number(row.amount),0);
+  const weeklyChange = previousTotal > 0 ? ((weeklyTotal-previousTotal)/previousTotal)*100 : null;
+  const chartMax = Math.max(1,...byVehicle.map(([,amount])=>amount),...byCategory.map(([,amount])=>amount));
   return (
     <main className="content">
       <section className="welcome">
@@ -480,6 +486,11 @@ export function ExpensesManagement() {
           <span>Pendientes de revisión</span>
           <strong>{rows.filter((r) => r.status === "Pendiente").length}</strong>
         </article>
+        <article className="metric green"><span>Total de esta semana</span><strong>S/ {weeklyTotal.toLocaleString("es-PE",{minimumFractionDigits:2})}</strong><small>{weeklyChange===null?"Sin semana anterior para comparar":`${weeklyChange>=0?"+":""}${weeklyChange.toFixed(1)}% frente a la semana anterior`}</small></article>
+      </section>
+      <section className="expense-charts">
+        <article className="panel"><div className="panel-title"><div><span>COMPARATIVO</span><h3>Gasto semanal por unidad</h3></div></div><div className="expense-bars">{byVehicle.map(([label,amount])=><div key={label}><span>{label}</span><i><b style={{width:`${(amount/chartMax)*100}%`}}/></i><strong>S/ {amount.toFixed(2)}</strong></div>)}</div></article>
+        <article className="panel"><div className="panel-title"><div><span>DISTRIBUCIÓN</span><h3>Gasto por categoría</h3></div></div><div className="expense-bars category-bars">{byCategory.map(([label,amount])=><div key={label}><span>{label}</span><i><b style={{width:`${(amount/chartMax)*100}%`}}/></i><strong>{weeklyTotal?((amount/weeklyTotal)*100).toFixed(0):0}% · S/ {amount.toFixed(2)}</strong></div>)}</div></article>
       </section>
       <section className="panel weekly-expense-panel">
         <div className="panel-title">

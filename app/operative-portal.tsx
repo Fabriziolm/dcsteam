@@ -227,11 +227,19 @@ export function OperativePortal({
         ? await supabase.from("time_entries").update({ clock_out:new Date().toISOString(), clock_out_lat:location.latitude, clock_out_lng:location.longitude, clock_out_accuracy:location.accuracy, clock_out_photo:evidencePath, status:"Cerrada", updated_at:new Date().toISOString() }).eq("id",shift.id)
         : await supabase.from("time_entries").insert({ user_id:session.user.id, work_date:today, clock_in:new Date().toISOString(), clock_in_lat:location.latitude, clock_in_lng:location.longitude, clock_in_accuracy:location.accuracy, clock_in_photo:evidencePath, status:"Abierta" });
     } else if (action === "fuel" || action === "expense") {
+      const amount = Number(form.amount);
+      if (!Number.isFinite(amount) || amount <= 0 || amount > 10000) { setError("El importe debe ser mayor a S/ 0 y menor o igual a S/ 10,000."); setSaving(false); return; }
+      if (form.concept.trim().length < 4) { setError("Describe mejor el concepto del gasto."); setSaving(false); return; }
       if (!receipt) {
         setError("Toma o selecciona una foto del comprobante.");
         setSaving(false);
         return;
       }
+      if (!receipt.type.startsWith("image/")) { setError("El comprobante debe ser una imagen."); setSaving(false); return; }
+      if (receipt.size > 8 * 1024 * 1024) { setError("La imagen supera el máximo de 8 MB."); setSaving(false); return; }
+      const duplicate = await supabase.from("expenses").select("id").eq("user_id",session.user.id).eq("expense_date",today).eq("vehicle_id",form.vehicle_id).eq("category",form.category).eq("amount",amount).eq("source_system","dcs_app").neq("status","Rechazado").limit(1);
+      if (duplicate.error) { setError(duplicate.error.message); setSaving(false); return; }
+      if (duplicate.data?.length) { setError("Posible comprobante duplicado: ya registraste hoy el mismo importe, tipo y unidad."); setSaving(false); return; }
       const extension = receipt.name.split(".").pop()?.toLowerCase() || "jpg";
       const receiptPath = `${session.user.id}/${today}/${crypto.randomUUID()}.${extension}`;
       const upload = await supabase.storage
@@ -252,7 +260,7 @@ export function OperativePortal({
         vehicle_id: form.vehicle_id,
         category: form.category,
         concept: form.concept,
-        amount: Number(form.amount),
+          amount,
         receipt_url: receiptPath,
         source_system: "dcs_app",
         status: "Pendiente",
