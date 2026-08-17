@@ -1,79 +1,935 @@
 "use client";
 
-import { Car, CheckCircle, CurrencyDollar, DownloadSimple, Plus, Receipt, SpinnerGap, WarningCircle } from "@phosphor-icons/react";
+import {
+  Car,
+  CheckCircle,
+  CurrencyDollar,
+  DownloadSimple,
+  Plus,
+  Receipt,
+  SpinnerGap,
+  WarningCircle,
+} from "@phosphor-icons/react";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
 
-type Client={id:string;name:string};
-type Vehicle={id:string;name:string;plate:string;fuel_type:string;current_km:number;status:string;active:boolean};
-type Invoice={id:string;invoice_number:string|null;issue_date:string|null;amount_with_tax:number;paid_amount:number;status:string;concept:string|null;clients:{name:string}|null};
-type Expense={id:string;expense_date:string;category:string;concept:string;amount:number;status:string;receipt_url:string|null;vehicles:{name:string;plate:string}|null};
+type Client = { id: string; name: string };
+type Vehicle = {
+  id: string;
+  name: string;
+  plate: string;
+  fuel_type: string;
+  current_km: number;
+  status: string;
+  active: boolean;
+};
+type Invoice = {
+  id: string;
+  invoice_number: string | null;
+  issue_date: string | null;
+  amount_with_tax: number;
+  paid_amount: number;
+  status: string;
+  concept: string | null;
+  clients: { name: string } | null;
+};
+type Expense = {
+  id: string;
+  expense_date: string;
+  category: string;
+  concept: string;
+  amount: number;
+  status: string;
+  receipt_url: string | null;
+  vehicles: { name: string; plate: string } | null;
+  clients: { name: string } | null;
+};
 
-function Notice({error,message}:{error:string;message:string}) { return <>{error&&<div className="module-error"><WarningCircle size={20}/>{error}</div>}{message&&<div className="module-success"><CheckCircle size={20}/>{message}</div>}</>; }
-
-export function BillingManagement(){
-  const [rows,setRows]=useState<Invoice[]>([]),[clients,setClients]=useState<Client[]>([]);
-  const [loading,setLoading]=useState(true),[saving,setSaving]=useState(false),[show,setShow]=useState(false);
-  const [error,setError]=useState(""),[message,setMessage]=useState("");
-  const [form,setForm]=useState({invoice_number:"",issue_date:new Date().toISOString().slice(0,10),client_id:"",amount_with_tax:"",concept:"",status:"Pendiente"});
-  const load=useCallback(async()=>{if(!supabase)return;setLoading(true);const [a,b]=await Promise.all([supabase.from("invoices").select("id,invoice_number,issue_date,amount_with_tax,paid_amount,status,concept,clients(name)").order("issue_date",{ascending:false}).limit(100),supabase.from("clients").select("id,name").eq("active",true).order("name")]);if(a.error||b.error)setError(a.error?.message||b.error?.message||"");else{setRows((a.data||[]) as unknown as Invoice[]);setClients((b.data||[]) as Client[])}setLoading(false)},[]);
-  useEffect(()=>{void load()},[load]);
-  async function save(e:FormEvent){e.preventDefault();if(!supabase)return;setSaving(true);setError("");const {data}=await supabase.auth.getUser();const amount=Number(form.amount_with_tax);const r=await supabase.from("invoices").insert({...form,invoice_number:form.invoice_number||null,amount_with_tax:amount,amount_without_tax:Number((amount/1.18).toFixed(2)),paid_amount:form.status==="Pagado"?amount:0,created_by:data.user?.id});if(r.error)setError(r.error.message);else{setMessage("Factura registrada.");setShow(false);await load()}setSaving(false)}
-  const total=rows.reduce((n,r)=>n+Number(r.amount_with_tax),0), pending=rows.filter(r=>r.status==="Pendiente"||r.status==="Parcial").reduce((n,r)=>n+Number(r.amount_with_tax)-Number(r.paid_amount),0);
-  return <main className="content"><section className="welcome"><div><span className="live-dot">CONTROL FINANCIERO</span><h2>Facturación</h2><p>Registro y seguimiento de comprobantes por cliente.</p></div><button className="primary" onClick={()=>setShow(!show)}><Plus size={19}/>Nueva factura</button></section><Notice error={error} message={message}/><section className="metrics-grid compact"><article className="metric blue"><span>Total registrado</span><strong>S/ {total.toLocaleString("es-PE",{minimumFractionDigits:2})}</strong></article><article className="metric amber"><span>Saldo pendiente</span><strong>S/ {pending.toLocaleString("es-PE",{minimumFractionDigits:2})}</strong></article></section>{show&&<form className="service-form panel" onSubmit={save}><div className="panel-title"><div><span>NUEVO REGISTRO</span><h3>Agregar factura</h3></div></div><div className="form-grid"><label>Número<input value={form.invoice_number} onChange={e=>setForm({...form,invoice_number:e.target.value})}/></label><label>Fecha<input type="date" required value={form.issue_date} onChange={e=>setForm({...form,issue_date:e.target.value})}/></label><label>Cliente<select required value={form.client_id} onChange={e=>setForm({...form,client_id:e.target.value})}><option value="">Seleccionar</option>{clients.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></label><label>Importe con IGV<input type="number" min="0" step="0.01" required value={form.amount_with_tax} onChange={e=>setForm({...form,amount_with_tax:e.target.value})}/></label><label className="wide">Concepto<input value={form.concept} onChange={e=>setForm({...form,concept:e.target.value})}/></label><label>Estado<select value={form.status} onChange={e=>setForm({...form,status:e.target.value})}><option>Pendiente</option><option>Parcial</option><option>Pagado</option></select></label></div><div className="form-actions"><button type="button" onClick={()=>setShow(false)}>Cancelar</button><button className="primary" disabled={saving}>{saving?"Guardando…":"Guardar factura"}</button></div></form>}<DataTable loading={loading} empty="No hay facturas registradas."><thead><tr><th>Fecha</th><th>Número</th><th>Cliente</th><th>Concepto</th><th>Importe</th><th>Estado</th></tr></thead><tbody>{rows.map(r=><tr key={r.id}><td>{r.issue_date||"—"}</td><td>{r.invoice_number||"—"}</td><td>{r.clients?.name||"—"}</td><td>{r.concept||"—"}</td><td>S/ {Number(r.amount_with_tax).toFixed(2)}</td><td><b className="table-status">{r.status}</b></td></tr>)}</tbody></DataTable></main>
+function Notice({ error, message }: { error: string; message: string }) {
+  return (
+    <>
+      {error && (
+        <div className="module-error">
+          <WarningCircle size={20} />
+          {error}
+        </div>
+      )}
+      {message && (
+        <div className="module-success">
+          <CheckCircle size={20} />
+          {message}
+        </div>
+      )}
+    </>
+  );
 }
 
-function DataTable({loading,empty,children}:{loading:boolean;empty:string;children:React.ReactNode}){return <section className="panel data-panel">{loading?<div className="empty-state"><SpinnerGap className="spin" size={28}/>Cargando…</div>:<div className="table-scroll"><table className="data-table">{children}</table></div>}</section>}
-
-export function ExpensesManagement(){
-  const [rows,setRows]=useState<Expense[]>([]),[loading,setLoading]=useState(true),[downloading,setDownloading]=useState(false),[error,setError]=useState(""),[message,setMessage]=useState("");
-  const load=useCallback(async()=>{if(!supabase)return;setLoading(true);const r=await supabase.from("expenses").select("id,expense_date,category,concept,amount,status,receipt_url,vehicles(name,plate)").eq("source_system","dcs_app").order("expense_date",{ascending:false}).limit(150);if(r.error)setError(r.error.message);else setRows((r.data||[]) as unknown as Expense[]);setLoading(false)},[]);useEffect(()=>{void load()},[load]);
-  async function review(id:string,status:string){if(!supabase)return;const {data}=await supabase.auth.getUser();const r=await supabase.from("expenses").update({status,reviewed_by:data.user?.id,reviewed_at:new Date().toISOString(),updated_at:new Date().toISOString()}).eq("id",id);if(r.error)setError(r.error.message);else{setMessage(`Gasto ${status.toLowerCase()}.`);await load()}}
-  async function openReceipt(path:string){if(!supabase)return;const {data,error:signError}=await supabase.storage.from("expense-receipts").createSignedUrl(path,60);if(signError)setError(signError.message);else window.open(data.signedUrl,"_blank","noopener,noreferrer")}
-  async function downloadWeeklyFolder(){
-    if(!supabase||downloading)return;setDownloading(true);setError("");
-    try{
-      const JSZip=(await import("jszip")).default,zip=new JSZip();
-      const receipts=weekly.filter(row=>Boolean(row.receipt_url));
-      const csv=["Fecha,Unidad,Categoria,Concepto,Importe,Estado,Archivo"];
-      for(const row of receipts){
-        const unit=(row.vehicles?.plate||"SIN-UNIDAD").replace(/[^a-z0-9-]/gi,"_");
-        const category=row.category.replace(/[^a-z0-9áéíóúñ-]/gi,"_");
-        const extension=row.receipt_url!.split(".").pop()||"jpg";
-        const filename=`${row.expense_date}_${row.id.slice(0,8)}.${extension}`;
-        const {data,error:signError}=await supabase.storage.from("expense-receipts").createSignedUrl(row.receipt_url!,300);
-        if(signError)throw signError;
-        const response=await fetch(data.signedUrl);if(!response.ok)throw new Error(`No se pudo descargar ${filename}`);
-        zip.file(`${unit}/${category}/${filename}`,await response.blob());
-        const values=[row.expense_date,row.vehicles?`${row.vehicles.name} ${row.vehicles.plate}`:"Sin unidad",row.category,row.concept,Number(row.amount).toFixed(2),row.status,`${unit}/${category}/${filename}`];
-        csv.push(values.map(value=>`"${String(value).replaceAll('"','""')}"`).join(","));
-      }
-      zip.file("resumen_gastos.csv","\uFEFF"+csv.join("\n"));
-      const blob=await zip.generateAsync({type:"blob"});const url=URL.createObjectURL(blob);const anchor=document.createElement("a");anchor.href=url;anchor.download=`DCS_comprobantes_semana_${weekStart.toISOString().slice(0,10)}.zip`;anchor.click();URL.revokeObjectURL(url);
-      setMessage(`Carpeta semanal generada con ${receipts.length} comprobantes.`);
-    }catch(cause){setError(cause instanceof Error?cause.message:"No se pudo generar la carpeta semanal.")}finally{setDownloading(false)}
+export function BillingManagement() {
+  const [rows, setRows] = useState<Invoice[]>([]),
+    [clients, setClients] = useState<Client[]>([]);
+  const [loading, setLoading] = useState(true),
+    [saving, setSaving] = useState(false),
+    [show, setShow] = useState(false);
+  const [error, setError] = useState(""),
+    [message, setMessage] = useState("");
+  const [form, setForm] = useState({
+    invoice_number: "",
+    issue_date: new Date().toISOString().slice(0, 10),
+    client_id: "",
+    amount_with_tax: "",
+    concept: "",
+    status: "Pendiente",
+  });
+  const load = useCallback(async () => {
+    if (!supabase) return;
+    setLoading(true);
+    const [a, b] = await Promise.all([
+      supabase
+        .from("invoices")
+        .select(
+          "id,invoice_number,issue_date,amount_with_tax,paid_amount,status,concept,clients(name)",
+        )
+        .order("issue_date", { ascending: false })
+        .limit(100),
+      supabase
+        .from("clients")
+        .select("id,name")
+        .eq("active", true)
+        .order("name"),
+    ]);
+    if (a.error || b.error)
+      setError(a.error?.message || b.error?.message || "");
+    else {
+      setRows((a.data || []) as unknown as Invoice[]);
+      setClients((b.data || []) as Client[]);
+    }
+    setLoading(false);
+  }, []);
+  useEffect(() => {
+    void load();
+  }, [load]);
+  async function save(e: FormEvent) {
+    e.preventDefault();
+    if (!supabase) return;
+    setSaving(true);
+    setError("");
+    const { data } = await supabase.auth.getUser();
+    const amount = Number(form.amount_with_tax);
+    const r = await supabase
+      .from("invoices")
+      .insert({
+        ...form,
+        invoice_number: form.invoice_number || null,
+        amount_with_tax: amount,
+        amount_without_tax: Number((amount / 1.18).toFixed(2)),
+        paid_amount: form.status === "Pagado" ? amount : 0,
+        created_by: data.user?.id,
+      });
+    if (r.error) setError(r.error.message);
+    else {
+      setMessage("Factura registrada.");
+      setShow(false);
+      await load();
+    }
+    setSaving(false);
   }
-  const total=rows.filter(r=>r.status!=="Rechazado").reduce((n,r)=>n+Number(r.amount),0);
-  const weekStart=new Date();weekStart.setHours(0,0,0,0);weekStart.setDate(weekStart.getDate()-((weekStart.getDay()+6)%7));
-  const weekly=rows.filter(r=>new Date(`${r.expense_date}T12:00:00`)>=weekStart&&r.status!=="Rechazado");
-  const byVehicle=Object.entries(weekly.reduce<Record<string,number>>((summary,r)=>{const unit=r.vehicles?`${r.vehicles.name} · ${r.vehicles.plate}`:"Sin unidad";summary[unit]=(summary[unit]||0)+Number(r.amount);return summary},{}));
-  return <main className="content"><section className="welcome"><div><span className="live-dot">GASTOS DESDE LA APP</span><h2>Gastos operativos</h2><p>Comprobantes enviados por choferes y auxiliares. Esta información no se envía a Google Sheets.</p></div><button className="primary" disabled={downloading||weekly.length===0} onClick={()=>void downloadWeeklyFolder()}>{downloading?<SpinnerGap className="spin" size={19}/>:<DownloadSimple size={19}/>} {downloading?"Preparando ZIP…":"Descargar carpeta semanal"}</button></section><Notice error={error} message={message}/><section className="metrics-grid compact"><article className="metric blue"><span>Total registrado en la app</span><strong>S/ {total.toLocaleString("es-PE",{minimumFractionDigits:2})}</strong></article><article className="metric amber"><span>Pendientes de revisión</span><strong>{rows.filter(r=>r.status==="Pendiente").length}</strong></article></section><section className="panel weekly-expense-panel"><div className="panel-title"><div><span>SEMANA ACTUAL</span><h3>Gasto por unidad</h3></div></div><div className="fleet-grid">{byVehicle.length?byVehicle.map(([unit,amount])=><article className="weekly-expense" key={unit}><Car size={24}/><div><span>{unit}</span><strong>S/ {amount.toLocaleString("es-PE",{minimumFractionDigits:2})}</strong></div></article>):<div className="empty-state">Todavía no hay gastos esta semana.</div>}</div></section><DataTable loading={loading} empty="No hay gastos enviados desde la app."><thead><tr><th>Fecha</th><th>Categoría</th><th>Concepto</th><th>Unidad</th><th>Importe</th><th>Comprobante</th><th>Revisión</th></tr></thead><tbody>{rows.map(r=><tr key={r.id}><td>{r.expense_date}</td><td>{r.category}</td><td>{r.concept}</td><td>{r.vehicles?`${r.vehicles.name} · ${r.vehicles.plate}`:"—"}</td><td>S/ {Number(r.amount).toFixed(2)}</td><td>{r.receipt_url?<button className="receipt-link" onClick={()=>void openReceipt(r.receipt_url!)}>Ver foto</button>:"—"}</td><td>{r.status==="Pendiente"?<div className="row-actions"><button onClick={()=>void review(r.id,"Aprobado")}>Aprobar</button><button className="reject" onClick={()=>void review(r.id,"Rechazado")}>Rechazar</button></div>:<b className="table-status">{r.status}</b>}</td></tr>)}</tbody></DataTable></main>
+  const total = rows.reduce((n, r) => n + Number(r.amount_with_tax), 0),
+    pending = rows
+      .filter((r) => r.status === "Pendiente" || r.status === "Parcial")
+      .reduce(
+        (n, r) => n + Number(r.amount_with_tax) - Number(r.paid_amount),
+        0,
+      );
+  return (
+    <main className="content">
+      <section className="welcome">
+        <div>
+          <span className="live-dot">CONTROL FINANCIERO</span>
+          <h2>Facturación</h2>
+          <p>Registro y seguimiento de comprobantes por cliente.</p>
+        </div>
+        <button className="primary" onClick={() => setShow(!show)}>
+          <Plus size={19} />
+          Nueva factura
+        </button>
+      </section>
+      <Notice error={error} message={message} />
+      <section className="metrics-grid compact">
+        <article className="metric blue">
+          <span>Total registrado</span>
+          <strong>
+            S/ {total.toLocaleString("es-PE", { minimumFractionDigits: 2 })}
+          </strong>
+        </article>
+        <article className="metric amber">
+          <span>Saldo pendiente</span>
+          <strong>
+            S/ {pending.toLocaleString("es-PE", { minimumFractionDigits: 2 })}
+          </strong>
+        </article>
+      </section>
+      {show && (
+        <form className="service-form panel" onSubmit={save}>
+          <div className="panel-title">
+            <div>
+              <span>NUEVO REGISTRO</span>
+              <h3>Agregar factura</h3>
+            </div>
+          </div>
+          <div className="form-grid">
+            <label>
+              Número
+              <input
+                value={form.invoice_number}
+                onChange={(e) =>
+                  setForm({ ...form, invoice_number: e.target.value })
+                }
+              />
+            </label>
+            <label>
+              Fecha
+              <input
+                type="date"
+                required
+                value={form.issue_date}
+                onChange={(e) =>
+                  setForm({ ...form, issue_date: e.target.value })
+                }
+              />
+            </label>
+            <label>
+              Cliente
+              <select
+                required
+                value={form.client_id}
+                onChange={(e) =>
+                  setForm({ ...form, client_id: e.target.value })
+                }
+              >
+                <option value="">Seleccionar</option>
+                {clients.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Importe con IGV
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                required
+                value={form.amount_with_tax}
+                onChange={(e) =>
+                  setForm({ ...form, amount_with_tax: e.target.value })
+                }
+              />
+            </label>
+            <label className="wide">
+              Concepto
+              <input
+                value={form.concept}
+                onChange={(e) => setForm({ ...form, concept: e.target.value })}
+              />
+            </label>
+            <label>
+              Estado
+              <select
+                value={form.status}
+                onChange={(e) => setForm({ ...form, status: e.target.value })}
+              >
+                <option>Pendiente</option>
+                <option>Parcial</option>
+                <option>Pagado</option>
+              </select>
+            </label>
+          </div>
+          <div className="form-actions">
+            <button type="button" onClick={() => setShow(false)}>
+              Cancelar
+            </button>
+            <button className="primary" disabled={saving}>
+              {saving ? "Guardando…" : "Guardar factura"}
+            </button>
+          </div>
+        </form>
+      )}
+      <DataTable loading={loading} empty="No hay facturas registradas.">
+        <thead>
+          <tr>
+            <th>Fecha</th>
+            <th>Número</th>
+            <th>Cliente</th>
+            <th>Concepto</th>
+            <th>Importe</th>
+            <th>Estado</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.id}>
+              <td>{r.issue_date || "—"}</td>
+              <td>{r.invoice_number || "—"}</td>
+              <td>{r.clients?.name || "—"}</td>
+              <td>{r.concept || "—"}</td>
+              <td>S/ {Number(r.amount_with_tax).toFixed(2)}</td>
+              <td>
+                <b className="table-status">{r.status}</b>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </DataTable>
+    </main>
+  );
 }
 
-export function FleetManagement(){
-  const [rows,setRows]=useState<Vehicle[]>([]),[loading,setLoading]=useState(true),[show,setShow]=useState(false),[saving,setSaving]=useState(false),[error,setError]=useState(""),[message,setMessage]=useState("");
-  const [form,setForm]=useState({name:"",plate:"",fuel_type:"Gasolina",current_km:"0",status:"Disponible"});
-  const load=useCallback(async()=>{if(!supabase)return;setLoading(true);const r=await supabase.from("vehicles").select("id,name,plate,fuel_type,current_km,status,active").order("name");if(r.error)setError(r.error.message);else setRows((r.data||[]) as Vehicle[]);setLoading(false)},[]);useEffect(()=>{void load()},[load]);
-  async function save(e:FormEvent){e.preventDefault();if(!supabase)return;setSaving(true);const r=await supabase.from("vehicles").insert({...form,current_km:Number(form.current_km),plate:form.plate.toUpperCase()});if(r.error)setError(r.error.message);else{setMessage("Unidad registrada.");setShow(false);await load()}setSaving(false)}
-  async function change(id:string,status:string){if(!supabase)return;const r=await supabase.from("vehicles").update({status,updated_at:new Date().toISOString()}).eq("id",id);if(r.error)setError(r.error.message);else await load()}
-  return <main className="content"><section className="welcome"><div><span className="live-dot">CONTROL DE FLOTA</span><h2>Vehículos</h2><p>Kilometraje y disponibilidad de las unidades.</p></div><button className="primary" onClick={()=>setShow(!show)}><Plus size={19}/>Nueva unidad</button></section><Notice error={error} message={message}/>{show&&<form className="service-form panel" onSubmit={save}><div className="form-grid"><label>Nombre<input required value={form.name} onChange={e=>setForm({...form,name:e.target.value})}/></label><label>Placa<input required value={form.plate} onChange={e=>setForm({...form,plate:e.target.value})}/></label><label>Combustible<select value={form.fuel_type} onChange={e=>setForm({...form,fuel_type:e.target.value})}><option>Gasolina</option><option>GLP</option><option>Diésel</option><option>Eléctrico</option><option>Mixto</option></select></label><label>Kilometraje<input type="number" min="0" required value={form.current_km} onChange={e=>setForm({...form,current_km:e.target.value})}/></label></div><div className="form-actions"><button type="button" onClick={()=>setShow(false)}>Cancelar</button><button className="primary" disabled={saving}>Guardar unidad</button></div></form>}<section className="fleet-grid">{loading?<div className="empty-state"><SpinnerGap className="spin" size={28}/></div>:rows.map(v=><article className="panel fleet-item" key={v.id}><i><Car size={30}/></i><div><strong>{v.name} · {v.plate}</strong><span>{Number(v.current_km).toLocaleString("es-PE")} km · {v.fuel_type}</span></div><select value={v.status} onChange={e=>void change(v.id,e.target.value)}><option>Disponible</option><option>En ruta</option><option>Mantenimiento</option><option>Inactivo</option></select></article>)}</section></main>
+function DataTable({
+  loading,
+  empty,
+  children,
+}: {
+  loading: boolean;
+  empty: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="panel data-panel">
+      {loading ? (
+        <div className="empty-state">
+          <SpinnerGap className="spin" size={28} />
+          Cargando…
+        </div>
+      ) : (
+        <div className="table-scroll">
+          <table className="data-table">{children}</table>
+        </div>
+      )}
+    </section>
+  );
 }
 
-export function ClientsManagement(){
-  const [rows,setRows]=useState<Array<Client&{legal_name:string|null;ruc:string|null;contact_name:string|null;phone:string|null;email:string|null;active:boolean}>>([]),[loading,setLoading]=useState(true),[show,setShow]=useState(false),[saving,setSaving]=useState(false),[error,setError]=useState(""),[message,setMessage]=useState("");
-  const [form,setForm]=useState({name:"",legal_name:"",ruc:"",contact_name:"",phone:"",email:""});
-  const load=useCallback(async()=>{if(!supabase)return;setLoading(true);const r=await supabase.from("clients").select("id,name,legal_name,ruc,contact_name,phone,email,active").order("name");if(r.error)setError(r.error.message);else setRows(r.data||[]);setLoading(false)},[]);useEffect(()=>{void load()},[load]);
-  async function save(e:FormEvent){e.preventDefault();if(!supabase)return;setSaving(true);setError("");const r=await supabase.from("clients").insert({name:form.name.trim(),legal_name:form.legal_name||null,ruc:form.ruc||null,contact_name:form.contact_name||null,phone:form.phone||null,email:form.email||null});if(r.error)setError(r.error.message);else{setMessage("Cliente registrado.");setShow(false);setForm({name:"",legal_name:"",ruc:"",contact_name:"",phone:"",email:""});await load()}setSaving(false)}
-  async function toggle(client:typeof rows[number]){if(!supabase)return;const r=await supabase.from("clients").update({active:!client.active,updated_at:new Date().toISOString()}).eq("id",client.id);if(r.error)setError(r.error.message);else await load()}
-  return <main className="content"><section className="welcome"><div><span className="live-dot">CARTERA COMERCIAL</span><h2>Clientes</h2><p>Datos fiscales y contactos utilizados en servicios y facturación.</p></div><button className="primary" onClick={()=>setShow(!show)}><Plus size={19}/>Nuevo cliente</button></section><Notice error={error} message={message}/>{show&&<form className="service-form panel" onSubmit={save}><div className="form-grid"><label>Nombre comercial<input required value={form.name} onChange={e=>setForm({...form,name:e.target.value})}/></label><label>Razón social<input value={form.legal_name} onChange={e=>setForm({...form,legal_name:e.target.value})}/></label><label>RUC<input inputMode="numeric" value={form.ruc} onChange={e=>setForm({...form,ruc:e.target.value})}/></label><label>Contacto<input value={form.contact_name} onChange={e=>setForm({...form,contact_name:e.target.value})}/></label><label>Teléfono<input value={form.phone} onChange={e=>setForm({...form,phone:e.target.value})}/></label><label>Email<input type="email" value={form.email} onChange={e=>setForm({...form,email:e.target.value})}/></label></div><div className="form-actions"><button type="button" onClick={()=>setShow(false)}>Cancelar</button><button className="primary" disabled={saving}>{saving?"Guardando…":"Guardar cliente"}</button></div></form>}<DataTable loading={loading} empty="No hay clientes."><thead><tr><th>Cliente</th><th>Razón social</th><th>RUC</th><th>Contacto</th><th>Teléfono</th><th>Email</th><th>Acceso</th></tr></thead><tbody>{rows.map(c=><tr key={c.id}><td><strong>{c.name}</strong></td><td>{c.legal_name||"—"}</td><td>{c.ruc||"—"}</td><td>{c.contact_name||"—"}</td><td>{c.phone||"—"}</td><td>{c.email||"—"}</td><td><button className={c.active?"toggle-active":"toggle-inactive"} onClick={()=>void toggle(c)}>{c.active?"Activo":"Inactivo"}</button></td></tr>)}</tbody></DataTable></main>
+export function ExpensesManagement() {
+  const [rows, setRows] = useState<Expense[]>([]),
+    [loading, setLoading] = useState(true),
+    [downloading, setDownloading] = useState(false),
+    [error, setError] = useState(""),
+    [message, setMessage] = useState("");
+  const load = useCallback(async () => {
+    if (!supabase) return;
+    setLoading(true);
+    const r = await supabase
+      .from("expenses")
+      .select(
+        "id,expense_date,category,concept,amount,status,receipt_url,vehicles(name,plate),clients(name)",
+      )
+      .eq("source_system", "dcs_app")
+      .order("expense_date", { ascending: false })
+      .limit(150);
+    if (r.error) setError(r.error.message);
+    else setRows((r.data || []) as unknown as Expense[]);
+    setLoading(false);
+  }, []);
+  useEffect(() => {
+    void load();
+  }, [load]);
+  async function review(id: string, status: string) {
+    if (!supabase) return;
+    const { data } = await supabase.auth.getUser();
+    const r = await supabase
+      .from("expenses")
+      .update({
+        status,
+        reviewed_by: data.user?.id,
+        reviewed_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", id);
+    if (r.error) setError(r.error.message);
+    else {
+      setMessage(`Gasto ${status.toLowerCase()}.`);
+      await load();
+    }
+  }
+  async function openReceipt(path: string) {
+    if (!supabase) return;
+    const { data, error: signError } = await supabase.storage
+      .from("expense-receipts")
+      .createSignedUrl(path, 60);
+    if (signError) setError(signError.message);
+    else window.open(data.signedUrl, "_blank", "noopener,noreferrer");
+  }
+  async function downloadWeeklyFolder() {
+    if (!supabase || downloading) return;
+    setDownloading(true);
+    setError("");
+    try {
+      const JSZip = (await import("jszip")).default,
+        zip = new JSZip();
+      const receipts = weekly.filter((row) => Boolean(row.receipt_url));
+      const csv = ["Fecha,Cliente,Unidad,Categoria,Concepto,Importe,Estado,Archivo"];
+      for (const row of receipts) {
+        const unit = (row.vehicles?.plate || "SIN-UNIDAD").replace(
+          /[^a-z0-9-]/gi,
+          "_",
+        );
+        const category = row.category.replace(/[^a-z0-9áéíóúñ-]/gi, "_");
+        const extension = row.receipt_url!.split(".").pop() || "jpg";
+        const filename = `${row.expense_date}_${row.id.slice(0, 8)}.${extension}`;
+        const { data, error: signError } = await supabase.storage
+          .from("expense-receipts")
+          .createSignedUrl(row.receipt_url!, 300);
+        if (signError) throw signError;
+        const response = await fetch(data.signedUrl);
+        if (!response.ok) throw new Error(`No se pudo descargar ${filename}`);
+        zip.file(`${unit}/${category}/${filename}`, await response.blob());
+        const values = [
+          row.expense_date,
+          row.clients?.name || "Sin cliente",
+          row.vehicles
+            ? `${row.vehicles.name} ${row.vehicles.plate}`
+            : "Sin unidad",
+          row.category,
+          row.concept,
+          Number(row.amount).toFixed(2),
+          row.status,
+          `${unit}/${category}/${filename}`,
+        ];
+        csv.push(
+          values
+            .map((value) => `"${String(value).replaceAll('"', '""')}"`)
+            .join(","),
+        );
+      }
+      zip.file("resumen_gastos.csv", "\uFEFF" + csv.join("\n"));
+      const blob = await zip.generateAsync({ type: "blob" });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `DCS_comprobantes_semana_${weekStart.toISOString().slice(0, 10)}.zip`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+      setMessage(
+        `Carpeta semanal generada con ${receipts.length} comprobantes.`,
+      );
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "No se pudo generar la carpeta semanal.",
+      );
+    } finally {
+      setDownloading(false);
+    }
+  }
+  const total = rows
+    .filter((r) => r.status !== "Rechazado")
+    .reduce((n, r) => n + Number(r.amount), 0);
+  const weekStart = new Date();
+  weekStart.setHours(0, 0, 0, 0);
+  weekStart.setDate(weekStart.getDate() - ((weekStart.getDay() + 6) % 7));
+  const weekly = rows.filter(
+    (r) =>
+      new Date(`${r.expense_date}T12:00:00`) >= weekStart &&
+      r.status !== "Rechazado",
+  );
+  const byVehicle = Object.entries(
+    weekly.reduce<Record<string, number>>((summary, r) => {
+      const unit = r.vehicles
+        ? `${r.vehicles.name} · ${r.vehicles.plate}`
+        : "Sin unidad";
+      summary[unit] = (summary[unit] || 0) + Number(r.amount);
+      return summary;
+    }, {}),
+  );
+  return (
+    <main className="content">
+      <section className="welcome">
+        <div>
+          <span className="live-dot">GASTOS DESDE LA APP</span>
+          <h2>Gastos operativos</h2>
+          <p>
+            Comprobantes enviados por choferes y auxiliares. Esta información no
+            se envía a Google Sheets.
+          </p>
+        </div>
+        <button
+          className="primary"
+          disabled={downloading || weekly.length === 0}
+          onClick={() => void downloadWeeklyFolder()}
+        >
+          {downloading ? (
+            <SpinnerGap className="spin" size={19} />
+          ) : (
+            <DownloadSimple size={19} />
+          )}{" "}
+          {downloading ? "Preparando ZIP…" : "Descargar carpeta semanal"}
+        </button>
+      </section>
+      <Notice error={error} message={message} />
+      <section className="metrics-grid compact">
+        <article className="metric blue">
+          <span>Total registrado en la app</span>
+          <strong>
+            S/ {total.toLocaleString("es-PE", { minimumFractionDigits: 2 })}
+          </strong>
+        </article>
+        <article className="metric amber">
+          <span>Pendientes de revisión</span>
+          <strong>{rows.filter((r) => r.status === "Pendiente").length}</strong>
+        </article>
+      </section>
+      <section className="panel weekly-expense-panel">
+        <div className="panel-title">
+          <div>
+            <span>SEMANA ACTUAL</span>
+            <h3>Gasto por unidad</h3>
+          </div>
+        </div>
+        <div className="fleet-grid">
+          {byVehicle.length ? (
+            byVehicle.map(([unit, amount]) => (
+              <article className="weekly-expense" key={unit}>
+                <Car size={24} />
+                <div>
+                  <span>{unit}</span>
+                  <strong>
+                    S/{" "}
+                    {amount.toLocaleString("es-PE", {
+                      minimumFractionDigits: 2,
+                    })}
+                  </strong>
+                </div>
+              </article>
+            ))
+          ) : (
+            <div className="empty-state">
+              Todavía no hay gastos esta semana.
+            </div>
+          )}
+        </div>
+      </section>
+      <DataTable loading={loading} empty="No hay gastos enviados desde la app.">
+        <thead>
+          <tr>
+            <th>Fecha</th>
+            <th>Cliente</th>
+            <th>Categoría</th>
+            <th>Concepto</th>
+            <th>Unidad</th>
+            <th>Importe</th>
+            <th>Comprobante</th>
+            <th>Revisión</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.id}>
+              <td>{r.expense_date}</td>
+              <td>{r.clients?.name || "—"}</td>
+              <td>{r.category}</td>
+              <td>{r.concept}</td>
+              <td>
+                {r.vehicles ? `${r.vehicles.name} · ${r.vehicles.plate}` : "—"}
+              </td>
+              <td>S/ {Number(r.amount).toFixed(2)}</td>
+              <td>
+                {r.receipt_url ? (
+                  <button
+                    className="receipt-link"
+                    onClick={() => void openReceipt(r.receipt_url!)}
+                  >
+                    Ver foto
+                  </button>
+                ) : (
+                  "—"
+                )}
+              </td>
+              <td>
+                {r.status === "Pendiente" ? (
+                  <div className="row-actions">
+                    <button onClick={() => void review(r.id, "Aprobado")}>
+                      Aprobar
+                    </button>
+                    <button
+                      className="reject"
+                      onClick={() => void review(r.id, "Rechazado")}
+                    >
+                      Rechazar
+                    </button>
+                  </div>
+                ) : (
+                  <b className="table-status">{r.status}</b>
+                )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </DataTable>
+    </main>
+  );
+}
+
+export function FleetManagement() {
+  const [rows, setRows] = useState<Vehicle[]>([]),
+    [loading, setLoading] = useState(true),
+    [show, setShow] = useState(false),
+    [saving, setSaving] = useState(false),
+    [error, setError] = useState(""),
+    [message, setMessage] = useState("");
+  const [form, setForm] = useState({
+    name: "",
+    plate: "",
+    fuel_type: "Gasolina",
+    current_km: "0",
+    status: "Disponible",
+  });
+  const load = useCallback(async () => {
+    if (!supabase) return;
+    setLoading(true);
+    const r = await supabase
+      .from("vehicles")
+      .select("id,name,plate,fuel_type,current_km,status,active")
+      .order("name");
+    if (r.error) setError(r.error.message);
+    else setRows((r.data || []) as Vehicle[]);
+    setLoading(false);
+  }, []);
+  useEffect(() => {
+    void load();
+  }, [load]);
+  async function save(e: FormEvent) {
+    e.preventDefault();
+    if (!supabase) return;
+    setSaving(true);
+    const r = await supabase
+      .from("vehicles")
+      .insert({
+        ...form,
+        current_km: Number(form.current_km),
+        plate: form.plate.toUpperCase(),
+      });
+    if (r.error) setError(r.error.message);
+    else {
+      setMessage("Unidad registrada.");
+      setShow(false);
+      await load();
+    }
+    setSaving(false);
+  }
+  async function change(id: string, status: string) {
+    if (!supabase) return;
+    const r = await supabase
+      .from("vehicles")
+      .update({ status, updated_at: new Date().toISOString() })
+      .eq("id", id);
+    if (r.error) setError(r.error.message);
+    else await load();
+  }
+  return (
+    <main className="content">
+      <section className="welcome">
+        <div>
+          <span className="live-dot">CONTROL DE FLOTA</span>
+          <h2>Vehículos</h2>
+          <p>Kilometraje y disponibilidad de las unidades.</p>
+        </div>
+        <button className="primary" onClick={() => setShow(!show)}>
+          <Plus size={19} />
+          Nueva unidad
+        </button>
+      </section>
+      <Notice error={error} message={message} />
+      {show && (
+        <form className="service-form panel" onSubmit={save}>
+          <div className="form-grid">
+            <label>
+              Nombre
+              <input
+                required
+                value={form.name}
+                onChange={(e) => setForm({ ...form, name: e.target.value })}
+              />
+            </label>
+            <label>
+              Placa
+              <input
+                required
+                value={form.plate}
+                onChange={(e) => setForm({ ...form, plate: e.target.value })}
+              />
+            </label>
+            <label>
+              Combustible
+              <select
+                value={form.fuel_type}
+                onChange={(e) =>
+                  setForm({ ...form, fuel_type: e.target.value })
+                }
+              >
+                <option>Gasolina</option>
+                <option>GLP</option>
+                <option>Diésel</option>
+                <option>Eléctrico</option>
+                <option>Mixto</option>
+              </select>
+            </label>
+            <label>
+              Kilometraje
+              <input
+                type="number"
+                min="0"
+                required
+                value={form.current_km}
+                onChange={(e) =>
+                  setForm({ ...form, current_km: e.target.value })
+                }
+              />
+            </label>
+          </div>
+          <div className="form-actions">
+            <button type="button" onClick={() => setShow(false)}>
+              Cancelar
+            </button>
+            <button className="primary" disabled={saving}>
+              Guardar unidad
+            </button>
+          </div>
+        </form>
+      )}
+      <section className="fleet-grid">
+        {loading ? (
+          <div className="empty-state">
+            <SpinnerGap className="spin" size={28} />
+          </div>
+        ) : (
+          rows.map((v) => (
+            <article className="panel fleet-item" key={v.id}>
+              <i>
+                <Car size={30} />
+              </i>
+              <div>
+                <strong>
+                  {v.name} · {v.plate}
+                </strong>
+                <span>
+                  {Number(v.current_km).toLocaleString("es-PE")} km ·{" "}
+                  {v.fuel_type}
+                </span>
+              </div>
+              <select
+                value={v.status}
+                onChange={(e) => void change(v.id, e.target.value)}
+              >
+                <option>Disponible</option>
+                <option>En ruta</option>
+                <option>Mantenimiento</option>
+                <option>Inactivo</option>
+              </select>
+            </article>
+          ))
+        )}
+      </section>
+    </main>
+  );
+}
+
+export function ClientsManagement() {
+  const [rows, setRows] = useState<
+      Array<
+        Client & {
+          legal_name: string | null;
+          ruc: string | null;
+          contact_name: string | null;
+          phone: string | null;
+          email: string | null;
+          active: boolean;
+        }
+      >
+    >([]),
+    [loading, setLoading] = useState(true),
+    [show, setShow] = useState(false),
+    [saving, setSaving] = useState(false),
+    [error, setError] = useState(""),
+    [message, setMessage] = useState("");
+  const [form, setForm] = useState({
+    name: "",
+    legal_name: "",
+    ruc: "",
+    contact_name: "",
+    phone: "",
+    email: "",
+  });
+  const load = useCallback(async () => {
+    if (!supabase) return;
+    setLoading(true);
+    const r = await supabase
+      .from("clients")
+      .select("id,name,legal_name,ruc,contact_name,phone,email,active")
+      .order("name");
+    if (r.error) setError(r.error.message);
+    else setRows(r.data || []);
+    setLoading(false);
+  }, []);
+  useEffect(() => {
+    void load();
+  }, [load]);
+  async function save(e: FormEvent) {
+    e.preventDefault();
+    if (!supabase) return;
+    setSaving(true);
+    setError("");
+    const r = await supabase
+      .from("clients")
+      .insert({
+        name: form.name.trim(),
+        legal_name: form.legal_name || null,
+        ruc: form.ruc || null,
+        contact_name: form.contact_name || null,
+        phone: form.phone || null,
+        email: form.email || null,
+      });
+    if (r.error) setError(r.error.message);
+    else {
+      setMessage("Cliente registrado.");
+      setShow(false);
+      setForm({
+        name: "",
+        legal_name: "",
+        ruc: "",
+        contact_name: "",
+        phone: "",
+        email: "",
+      });
+      await load();
+    }
+    setSaving(false);
+  }
+  async function toggle(client: (typeof rows)[number]) {
+    if (!supabase) return;
+    const r = await supabase
+      .from("clients")
+      .update({ active: !client.active, updated_at: new Date().toISOString() })
+      .eq("id", client.id);
+    if (r.error) setError(r.error.message);
+    else await load();
+  }
+  return (
+    <main className="content">
+      <section className="welcome">
+        <div>
+          <span className="live-dot">CARTERA COMERCIAL</span>
+          <h2>Clientes</h2>
+          <p>
+            Datos fiscales y contactos utilizados en servicios y facturación.
+          </p>
+        </div>
+        <button className="primary" onClick={() => setShow(!show)}>
+          <Plus size={19} />
+          Nuevo cliente
+        </button>
+      </section>
+      <Notice error={error} message={message} />
+      {show && (
+        <form className="service-form panel" onSubmit={save}>
+          <div className="form-grid">
+            <label>
+              Nombre comercial
+              <input
+                required
+                value={form.name}
+                onChange={(e) => setForm({ ...form, name: e.target.value })}
+              />
+            </label>
+            <label>
+              Razón social
+              <input
+                value={form.legal_name}
+                onChange={(e) =>
+                  setForm({ ...form, legal_name: e.target.value })
+                }
+              />
+            </label>
+            <label>
+              RUC
+              <input
+                inputMode="numeric"
+                value={form.ruc}
+                onChange={(e) => setForm({ ...form, ruc: e.target.value })}
+              />
+            </label>
+            <label>
+              Contacto
+              <input
+                value={form.contact_name}
+                onChange={(e) =>
+                  setForm({ ...form, contact_name: e.target.value })
+                }
+              />
+            </label>
+            <label>
+              Teléfono
+              <input
+                value={form.phone}
+                onChange={(e) => setForm({ ...form, phone: e.target.value })}
+              />
+            </label>
+            <label>
+              Email
+              <input
+                type="email"
+                value={form.email}
+                onChange={(e) => setForm({ ...form, email: e.target.value })}
+              />
+            </label>
+          </div>
+          <div className="form-actions">
+            <button type="button" onClick={() => setShow(false)}>
+              Cancelar
+            </button>
+            <button className="primary" disabled={saving}>
+              {saving ? "Guardando…" : "Guardar cliente"}
+            </button>
+          </div>
+        </form>
+      )}
+      <DataTable loading={loading} empty="No hay clientes.">
+        <thead>
+          <tr>
+            <th>Cliente</th>
+            <th>Razón social</th>
+            <th>RUC</th>
+            <th>Contacto</th>
+            <th>Teléfono</th>
+            <th>Email</th>
+            <th>Acceso</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((c) => (
+            <tr key={c.id}>
+              <td>
+                <strong>{c.name}</strong>
+              </td>
+              <td>{c.legal_name || "—"}</td>
+              <td>{c.ruc || "—"}</td>
+              <td>{c.contact_name || "—"}</td>
+              <td>{c.phone || "—"}</td>
+              <td>{c.email || "—"}</td>
+              <td>
+                <button
+                  className={c.active ? "toggle-active" : "toggle-inactive"}
+                  onClick={() => void toggle(c)}
+                >
+                  {c.active ? "Activo" : "Inactivo"}
+                </button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </DataTable>
+    </main>
+  );
 }

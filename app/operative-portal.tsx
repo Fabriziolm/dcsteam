@@ -20,6 +20,21 @@ import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
 
 type Role = "Chofer" | "Auxiliar";
+type Client = { id: string; name: string };
+type Vehicle = { id: string; name: string; plate: string };
+const expenseClientNames = [
+  "Indurama",
+  "Quiminap",
+  "Thaniyay",
+  "DAR",
+  "Healing",
+  "ROE",
+  "Calderon",
+  "Mondelez",
+  "INVERSIONES M K & F SAC",
+];
+const normalizeName = (value: string) =>
+  value.trim().toLocaleLowerCase("es-PE");
 type Service = {
   id: string;
   service_date: string;
@@ -47,6 +62,8 @@ export function OperativePortal({
   initialAction?: Action;
 }) {
   const [services, setServices] = useState<Service[]>([]);
+  const [clients, setClients] = useState<Client[]>([]);
+  const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [shift, setShift] = useState<{
     id: string;
     clock_in: string;
@@ -61,6 +78,8 @@ export function OperativePortal({
   const [receipt, setReceipt] = useState<File | null>(null);
   const [form, setForm] = useState({
     service_id: "",
+    client_id: "",
+    vehicle_id: "",
     amount: "",
     concept: "",
     category: "Peaje",
@@ -75,34 +94,69 @@ export function OperativePortal({
     if (!supabase) return;
     setLoading(true);
     setError("");
-    const [serviceResult, shiftResult] = await Promise.all([
-      supabase
-        .from("services")
-        .select(
-          "id,service_date,scheduled_start,status,origin,destination,merchandise,km_start,km_end,vehicle_id,clients(name),vehicles(name,plate)",
-        )
-        .gte("service_date", today)
-        .order("service_date")
-        .order("scheduled_start")
-        .limit(30),
-      supabase
-        .from("time_entries")
-        .select("id,clock_in,clock_out")
-        .eq("user_id", session.user.id)
-        .eq("work_date", today)
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle(),
-    ]);
-    if (serviceResult.error || shiftResult.error)
+    const [serviceResult, shiftResult, clientResult, vehicleResult] =
+      await Promise.all([
+        supabase
+          .from("services")
+          .select(
+            "id,service_date,scheduled_start,status,origin,destination,merchandise,km_start,km_end,vehicle_id,clients(name),vehicles(name,plate)",
+          )
+          .gte("service_date", today)
+          .order("service_date")
+          .order("scheduled_start")
+          .limit(30),
+        supabase
+          .from("time_entries")
+          .select("id,clock_in,clock_out")
+          .eq("user_id", session.user.id)
+          .eq("work_date", today)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+        supabase
+          .from("clients")
+          .select("id,name")
+          .eq("active", true)
+          .order("name"),
+        supabase
+          .from("vehicles")
+          .select("id,name,plate")
+          .eq("active", true)
+          .order("plate"),
+      ]);
+    if (
+      serviceResult.error ||
+      shiftResult.error ||
+      clientResult.error ||
+      vehicleResult.error
+    )
       setError(
         serviceResult.error?.message ||
           shiftResult.error?.message ||
+          clientResult.error?.message ||
+          vehicleResult.error?.message ||
           "No se pudo cargar la jornada.",
       );
     else {
       setServices((serviceResult.data || []) as unknown as Service[]);
       setShift(shiftResult.data);
+      const allowedClients = (clientResult.data || []).filter((client) =>
+        expenseClientNames.some(
+          (name) => normalizeName(name) === normalizeName(client.name),
+        ),
+      );
+      setClients(
+        allowedClients.sort(
+          (a, b) =>
+            expenseClientNames.findIndex(
+              (name) => normalizeName(name) === normalizeName(a.name),
+            ) -
+            expenseClientNames.findIndex(
+              (name) => normalizeName(name) === normalizeName(b.name),
+            ),
+        ) as Client[],
+      );
+      setVehicles((vehicleResult.data || []) as Vehicle[]);
     }
     setLoading(false);
   }, [session.user.id, today]);
@@ -139,14 +193,12 @@ export function OperativePortal({
               updated_at: new Date().toISOString(),
             })
             .eq("id", shift.id)
-        : await supabase
-            .from("time_entries")
-            .insert({
-              user_id: session.user.id,
-              work_date: today,
-              clock_in: new Date().toISOString(),
-              status: "Abierta",
-            });
+        : await supabase.from("time_entries").insert({
+            user_id: session.user.id,
+            work_date: today,
+            clock_in: new Date().toISOString(),
+            status: "Abierta",
+          });
     if (result.error) setError(result.error.message);
     else {
       setMessage(
@@ -168,9 +220,12 @@ export function OperativePortal({
     setForm((f) => ({
       ...f,
       service_id: service?.id || "",
+      client_id: "",
+      vehicle_id: service?.vehicle_id || "",
       km: "",
       amount: "",
       concept: "",
+      category: next === "fuel" ? "Gasolina" : "Peaje",
       description: "",
       status:
         service?.status === "Programado"
@@ -188,7 +243,6 @@ export function OperativePortal({
     setError("");
     let result: { error: { message: string } | null };
     if (action === "fuel" || action === "expense") {
-      const service = services.find((s) => s.id === form.service_id);
       if (!receipt) {
         setError("Toma o selecciona una foto del comprobante.");
         setSaving(false);
@@ -207,32 +261,29 @@ export function OperativePortal({
         setSaving(false);
         return;
       }
-      result = await supabase
-        .from("expenses")
-        .insert({
-          user_id: session.user.id,
-          service_id: form.service_id || null,
-          vehicle_id: service?.vehicle_id || null,
-          category: action === "fuel" ? "Gasolina" : form.category,
-          concept: form.concept,
-          amount: Number(form.amount),
-          receipt_url: receiptPath,
-          source_system: "dcs_app",
-          status: "Pendiente",
-        });
+      result = await supabase.from("expenses").insert({
+        user_id: session.user.id,
+        service_id: null,
+        client_id: form.client_id,
+        vehicle_id: form.vehicle_id,
+        category: form.category,
+        concept: form.concept,
+        amount: Number(form.amount),
+        receipt_url: receiptPath,
+        source_system: "dcs_app",
+        status: "Pendiente",
+      });
     } else if (action === "finding") {
       const service = services.find((s) => s.id === form.service_id);
-      result = await supabase
-        .from("findings")
-        .insert({
-          reported_by: session.user.id,
-          service_id: form.service_id || null,
-          vehicle_id: service?.vehicle_id || null,
-          category: "Operación",
-          severity: form.severity,
-          description: form.description,
-          status: "Abierto",
-        });
+      result = await supabase.from("findings").insert({
+        reported_by: session.user.id,
+        service_id: form.service_id || null,
+        vehicle_id: service?.vehicle_id || null,
+        category: "Operación",
+        severity: form.severity,
+        description: form.description,
+        status: "Abierto",
+      });
     } else {
       result = await supabase.rpc("record_service_progress", {
         target_service_id: form.service_id,
@@ -456,23 +507,25 @@ export function OperativePortal({
                           ? "Reportar incidencia"
                           : "Actualizar servicio"}
                 </h3>
-                <label>
-                  Servicio
-                  <select
-                    required
-                    value={form.service_id}
-                    onChange={(e) =>
-                      setForm({ ...form, service_id: e.target.value })
-                    }
-                  >
-                    <option value="">Seleccionar</option>
-                    {services.map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.clients?.name || "Servicio"} · {s.service_date}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                {action !== "fuel" && action !== "expense" && (
+                  <label>
+                    Servicio
+                    <select
+                      required
+                      value={form.service_id}
+                      onChange={(e) =>
+                        setForm({ ...form, service_id: e.target.value })
+                      }
+                    >
+                      <option value="">Seleccionar</option>
+                      {services.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.clients?.name || "Servicio"} · {s.service_date}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
                 {(action === "km" || action === "progress") && (
                   <label>
                     Kilometraje actual
@@ -504,16 +557,50 @@ export function OperativePortal({
                 {(action === "fuel" || action === "expense") && (
                   <>
                     <label>
+                      Cliente
+                      <select
+                        required
+                        value={form.client_id}
+                        onChange={(e) =>
+                          setForm({ ...form, client_id: e.target.value })
+                        }
+                      >
+                        <option value="">Seleccionar cliente</option>
+                        {clients.map((client) => (
+                          <option key={client.id} value={client.id}>
+                            {client.name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      Unidad
+                      <select
+                        required
+                        value={form.vehicle_id}
+                        onChange={(e) =>
+                          setForm({ ...form, vehicle_id: e.target.value })
+                        }
+                      >
+                        <option value="">Seleccionar unidad</option>
+                        {vehicles.map((vehicle) => (
+                          <option key={vehicle.id} value={vehicle.id}>
+                            {vehicle.name} · {vehicle.plate}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
                       Tipo
                       <select
-                        disabled={action === "fuel"}
-                        value={action === "fuel" ? "Gasolina" : form.category}
+                        value={form.category}
                         onChange={(e) =>
                           setForm({ ...form, category: e.target.value })
                         }
                       >
                         {[
                           "Gasolina",
+                          "Petróleo",
                           "GLP",
                           "Peaje",
                           "Estacionamiento",
@@ -528,11 +615,24 @@ export function OperativePortal({
                       Concepto
                       <input
                         required
+                        placeholder={
+                          form.category === "Peaje"
+                            ? "Ej.: Peaje Lurín"
+                            : form.category === "Estacionamiento"
+                              ? "Ej.: Estacionamiento Centro Cívico"
+                              : form.category === "Mantenimiento"
+                                ? "Ej.: Lavada de van"
+                                : "Ej.: lugar o motivo del gasto"
+                        }
                         value={form.concept}
                         onChange={(e) =>
                           setForm({ ...form, concept: e.target.value })
                         }
                       />
+                      <small>
+                        Describe brevemente el gasto: “Peaje Lurín”, “Lavada de
+                        van” o “Estacionamiento Centro Cívico”.
+                      </small>
                     </label>
                     <label>
                       Importe S/
@@ -556,7 +656,9 @@ export function OperativePortal({
                             type="file"
                             accept="image/*"
                             capture="environment"
-                            onChange={(e) => setReceipt(e.target.files?.[0] || null)}
+                            onChange={(e) =>
+                              setReceipt(e.target.files?.[0] || null)
+                            }
                           />
                         </label>
                         <label className="receipt-option">
@@ -564,11 +666,15 @@ export function OperativePortal({
                           <input
                             type="file"
                             accept="image/*"
-                            onChange={(e) => setReceipt(e.target.files?.[0] || null)}
+                            onChange={(e) =>
+                              setReceipt(e.target.files?.[0] || null)
+                            }
                           />
                         </label>
                       </div>
-                      {receipt && <b className="receipt-selected">✓ {receipt.name}</b>}
+                      {receipt && (
+                        <b className="receipt-selected">✓ {receipt.name}</b>
+                      )}
                       <small>
                         Toma una foto clara donde se vean fecha, importe y
                         proveedor.
