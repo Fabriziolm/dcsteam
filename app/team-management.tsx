@@ -29,10 +29,12 @@ export function TeamManagement() {
   const [loading, setLoading] = useState(true);
   const [workingId, setWorkingId] = useState("");
   const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
 
   const loadProfiles = useCallback(async () => {
     if (!supabase) return;
     setLoading(true);
+    setError("");
     const [usersResult, vehiclesResult, assignmentsResult] = await Promise.all([
       supabase.rpc("admin_list_users"),
       supabase.from("vehicles").select("id,name,plate").eq("active",true).order("plate"),
@@ -59,14 +61,24 @@ export function TeamManagement() {
 
   useEffect(() => {
     void loadProfiles();
+    if(!supabase)return;
+    const client=supabase;
+    const channel=client.channel("team-management-live")
+      .on("postgres_changes",{event:"*",schema:"public",table:"profiles"},()=>void loadProfiles())
+      .on("postgres_changes",{event:"*",schema:"public",table:"user_vehicle_assignments"},()=>void loadProfiles())
+      .on("postgres_changes",{event:"*",schema:"public",table:"vehicles"},()=>void loadProfiles())
+      .subscribe();
+    return()=>{void client.removeChannel(channel)};
   }, [loadProfiles]);
 
   async function approve(profile: StaffProfile) {
     if (!supabase) return;
     const selectedRole = roles[profile.id] ?? "Chofer";
     if (selectedRole !== "Administrador" && !assignedVehicles[profile.id]) { setError("Selecciona una unidad antes de aprobar al trabajador."); return; }
+    if(selectedRole!=="Administrador"&&!vehicles.some(vehicle=>vehicle.id===assignedVehicles[profile.id])){setError("La unidad seleccionada ya no está disponible. Elige otra unidad activa.");return}
+    if(!window.confirm(`¿Aprobar a ${profile.full_name||profile.email||"este usuario"} como ${selectedRole}?`))return;
     setWorkingId(profile.id);
-    setError("");
+    setError("");setMessage("");
     const { error: approveError } = await supabase.rpc("approve_user", {
       target_user_id: profile.id,
       new_role: selectedRole,
@@ -78,36 +90,46 @@ export function TeamManagement() {
       setError(
         `No se pudo aprobar a ${profile.email ?? "este usuario"}: ${approveError?.message || assignmentResult.error?.message}`,
       );
-    else await loadProfiles();
+    else {setMessage("Usuario aprobado y acceso configurado.");await loadProfiles();}
     setWorkingId("");
   }
 
   async function manage(profile: StaffProfile, nextActive: boolean) {
     if (!supabase) return;
+    const selectedRole=roles[profile.id]??profile.role;
+    if(nextActive&&selectedRole!=="Administrador"&&!assignedVehicles[profile.id]){setError("Selecciona una unidad para el chofer o auxiliar antes de guardar.");return}
+    if(nextActive&&selectedRole!=="Administrador"&&!vehicles.some(vehicle=>vehicle.id===assignedVehicles[profile.id])){setError("La unidad asignada está inactiva o en mantenimiento. Selecciona otra unidad.");return}
+    if(!nextActive&&!window.confirm(`¿Desactivar a ${profile.full_name||profile.email||"este usuario"}? Perderá el acceso a la aplicación.`))return;
+    if(nextActive&&!profile.active&&!window.confirm(`¿Reactivar el acceso de ${profile.full_name||profile.email||"este usuario"}?`))return;
     setWorkingId(profile.id);
-    setError("");
+    setError("");setMessage("");
     const { error: manageError } = await supabase.rpc("manage_user_access", {
       target_user_id: profile.id,
-      new_role: roles[profile.id] ?? profile.role,
+      new_role: selectedRole,
       new_active: nextActive,
     });
     let assignmentError: {message:string}|null = null;
-    if (!manageError && nextActive && roles[profile.id] !== "Administrador") {
+    if (!manageError && nextActive && selectedRole !== "Administrador") {
       const vehicleId = assignedVehicles[profile.id];
       const assignmentResult = vehicleId
         ? await supabase.from("user_vehicle_assignments").upsert({user_id:profile.id,vehicle_id:vehicleId,active:true,assigned_by:(await supabase.auth.getUser()).data.user?.id,assigned_at:new Date().toISOString()},{onConflict:"user_id"})
         : await supabase.from("user_vehicle_assignments").delete().eq("user_id",profile.id);
       assignmentError = assignmentResult.error;
     }
+    if(!manageError&&nextActive&&selectedRole==="Administrador"){
+      const assignmentResult=await supabase.from("user_vehicle_assignments").delete().eq("user_id",profile.id);
+      assignmentError=assignmentResult.error;
+    }
     if (manageError || assignmentError)
       setError(
         `No se pudo actualizar a ${profile.email ?? "este usuario"}: ${manageError?.message || assignmentError?.message}`,
       );
-    else await loadProfiles();
+    else {setMessage(nextActive?(profile.active?"Datos del usuario actualizados.":"Usuario reactivado correctamente."):"Usuario desactivado.");await loadProfiles();}
     setWorkingId("");
   }
 
-  const pending = profiles.filter((profile) => !profile.active);
+  const pending = profiles.filter((profile) => !profile.active&&profile.role==="Sin cargo");
+  const inactive = profiles.filter((profile) => !profile.active&&profile.role!=="Sin cargo");
   const active = profiles.filter((profile) => profile.active);
 
   return (
@@ -120,8 +142,8 @@ export function TeamManagement() {
             Aprueba cuentas nuevas y asigna el nivel de acceso correspondiente.
           </p>
         </div>
-        <button className="primary" onClick={() => void loadProfiles()}>
-          <Users size={19} /> Actualizar
+        <button className="primary" disabled={loading} onClick={() => void loadProfiles()}>
+          {loading?<SpinnerGap className="spin" size={19}/>:<Users size={19} />} {loading?"Actualizando…":"Actualizar"}
         </button>
       </section>
       {error && (
@@ -130,6 +152,7 @@ export function TeamManagement() {
           {error}
         </div>
       )}
+      {message&&<div className="module-success"><CheckCircle size={20}/>{message}</div>}
       <section className="team-grid">
         <article className="panel team-panel">
           <div className="panel-title">
@@ -202,7 +225,7 @@ export function TeamManagement() {
                   <option key={role}>{role}</option>
                 ))}
               </select>
-              {profile.role !== "Administrador" && <select className="vehicle-assignment" value={assignedVehicles[profile.id]||""} onChange={event=>setAssignedVehicles({...assignedVehicles,[profile.id]:event.target.value})}><option value="">Sin unidad</option>{vehicles.map(vehicle=><option key={vehicle.id} value={vehicle.id}>{vehicle.name} · {vehicle.plate}</option>)}</select>}
+              {(roles[profile.id]??profile.role) !== "Administrador" && <select className="vehicle-assignment" value={assignedVehicles[profile.id]||""} onChange={event=>setAssignedVehicles({...assignedVehicles,[profile.id]:event.target.value})}><option value="">Seleccionar unidad</option>{vehicles.map(vehicle=><option key={vehicle.id} value={vehicle.id}>{vehicle.name} · {vehicle.plate}</option>)}</select>}
               <button
                 className="approve-button"
                 disabled={workingId === profile.id}
@@ -219,6 +242,10 @@ export function TeamManagement() {
               </button>
             </div>
           ))}
+        </article>
+        <article className="panel team-panel inactive-team">
+          <div className="panel-title"><div><span>SIN ACCESO</span><h3>Usuarios desactivados</h3></div><b className="count-badge">{inactive.length}</b></div>
+          {inactive.length===0?<div className="empty-state"><CheckCircle size={30}/>No hay usuarios desactivados.</div>:inactive.map(profile=><div className="staff-row" key={profile.id}><UserCircle size={34} weight="duotone"/><div className="staff-identity"><strong>{profile.full_name||"Usuario DCS"}</strong><span>{profile.email} · {profile.role}</span></div><select value={roles[profile.id]??profile.role} onChange={event=>setRoles({...roles,[profile.id]:event.target.value})}>{assignableRoles.map(role=><option key={role}>{role}</option>)}</select>{(roles[profile.id]??profile.role)!=="Administrador"&&<select className="vehicle-assignment" value={assignedVehicles[profile.id]||""} onChange={event=>setAssignedVehicles({...assignedVehicles,[profile.id]:event.target.value})}><option value="">Seleccionar unidad</option>{vehicles.map(vehicle=><option key={vehicle.id} value={vehicle.id}>{vehicle.name} · {vehicle.plate}</option>)}</select>}<button className="approve-button" disabled={workingId===profile.id} onClick={()=>void manage(profile,true)}>{workingId===profile.id?"Reactivando…":"Reactivar"}</button></div>)}
         </article>
       </section>
     </main>
