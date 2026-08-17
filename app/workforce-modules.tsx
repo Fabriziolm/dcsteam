@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  ArrowsClockwise,
   CheckCircle,
   Camera,
   Clock,
@@ -443,31 +444,58 @@ type AttendanceEntry = {
   clock_in_lat: number | null; clock_in_lng: number | null; clock_in_accuracy: number | null; clock_in_photo: string | null;
   clock_out_lat: number | null; clock_out_lng: number | null; clock_out_accuracy: number | null; clock_out_photo: string | null;
 };
+type AttendanceCorrection={id:string;user_id:string;time_entry_id:string;correction_type:string;proposed_time:string|null;reason:string;original_clock_in:string|null;original_clock_out:string|null;status:string;created_at:string};
 
 export function AttendanceManagement() {
   const [rows, setRows] = useState<AttendanceEntry[]>([]);
   const [people, setPeople] = useState<Record<string, string>>({});
+  const [corrections,setCorrections]=useState<AttendanceCorrection[]>([]);
   const [loading, setLoading] = useState(true);
+  const [openingPhoto, setOpeningPhoto] = useState("");
+  const [reviewingCorrection,setReviewingCorrection]=useState("");
   const [error, setError] = useState("");
-  useEffect(() => {
+  const load=useCallback(async()=>{
     if (!supabase) return;
-    void Promise.all([
+    setLoading(true);setError("");
+    const [entries,profiles,requests]=await Promise.all([
       supabase.from("time_entries").select("id,user_id,work_date,clock_in,clock_out,status,clock_in_lat,clock_in_lng,clock_in_accuracy,clock_in_photo,clock_out_lat,clock_out_lng,clock_out_accuracy,clock_out_photo").order("work_date", { ascending: false }).limit(150),
       supabase.from("profiles").select("id,full_name,email"),
-    ]).then(([entries, profiles]) => {
-      if (entries.error || profiles.error) setError(entries.error?.message || profiles.error?.message || "No se pudieron cargar las marcaciones.");
-      else {
-        setRows((entries.data || []) as AttendanceEntry[]);
-        setPeople(Object.fromEntries((profiles.data || []).map(profile => [profile.id, profile.full_name || profile.email || "Usuario DCS"])));
-      }
-      setLoading(false);
-    });
-  }, []);
+      supabase.from("attendance_correction_requests").select("id,user_id,time_entry_id,correction_type,proposed_time,reason,original_clock_in,original_clock_out,status,created_at").eq("status","Pendiente").order("created_at",{ascending:false}),
+    ]);
+    if (entries.error || profiles.error || requests.error) setError(entries.error?.message || profiles.error?.message || requests.error?.message || "No se pudieron cargar las marcaciones.");
+    else {
+      setRows((entries.data || []) as AttendanceEntry[]);
+      setPeople(Object.fromEntries((profiles.data || []).map(profile => [profile.id, profile.full_name || profile.email || "Usuario DCS"])));
+      setCorrections((requests.data||[]) as AttendanceCorrection[]);
+    }
+    setLoading(false);
+  },[]);
+  useEffect(() => {
+    void load();
+    if(!supabase)return;
+    const client=supabase;
+    const channel=client.channel("attendance-management-live").on("postgres_changes",{event:"*",schema:"public",table:"time_entries"},()=>void load()).on("postgres_changes",{event:"*",schema:"public",table:"attendance_correction_requests"},()=>void load()).subscribe();
+    return()=>{void client.removeChannel(channel)};
+  }, [load]);
   async function openPhoto(path: string) {
     if (!supabase) return;
+    const photoWindow=window.open("","_blank");
+    if(!photoWindow){setError("El navegador bloqueó la evidencia. Habilita las ventanas emergentes para DCS.");return}
+    setOpeningPhoto(path);setError("");photoWindow.document.title="Cargando evidencia…";
     const { data, error: photoError } = await supabase.storage.from("attendance-evidence").createSignedUrl(path, 60);
-    if (photoError) setError(photoError.message); else window.open(data.signedUrl, "_blank", "noopener,noreferrer");
+    if (photoError){photoWindow.close();setError(`No se pudo abrir la evidencia: ${photoError.message}`)}else{photoWindow.opener=null;photoWindow.location.href=data.signedUrl}
+    setOpeningPhoto("");
+  }
+  async function reviewCorrection(request:AttendanceCorrection,approve:boolean){
+    if(!supabase)return;
+    let note:string|null=null;
+    if(approve){if(!window.confirm(`¿Aplicar la corrección de ${request.correction_type.toLowerCase()} solicitada por ${people[request.user_id]||"el trabajador"}?`))return}
+    else{note=window.prompt("Motivo del rechazo:")?.trim()||null;if(!note)return}
+    setReviewingCorrection(request.id);setError("");
+    const result=await supabase.rpc("review_attendance_correction",{request_id:request.id,approve,admin_note:note});
+    if(result.error)setError(result.error.message);else await load();
+    setReviewingCorrection("");
   }
   const mapLink = (lat: number, lng: number) => `https://www.google.com/maps?q=${lat},${lng}`;
-  return <main className="content"><section className="welcome"><div><span className="live-dot">AUDITORÍA DE ASISTENCIA</span><h2>Marcaciones del personal</h2><p>Ubicación, precisión GPS y evidencia de entrada y salida.</p></div></section>{error&&<div className="module-error"><WarningCircle size={20}/>{error}</div>}<section className="panel data-panel">{loading?<div className="empty-state"><SpinnerGap className="spin" size={28}/>Cargando marcaciones…</div>:<div className="table-scroll"><table className="data-table attendance-table"><thead><tr><th>Fecha</th><th>Trabajador</th><th>Entrada</th><th>Evidencia entrada</th><th>Salida</th><th>Evidencia salida</th><th>Estado</th></tr></thead><tbody>{rows.map(row=><tr key={row.id}><td>{row.work_date}</td><td><strong>{people[row.user_id]||"Usuario DCS"}</strong></td><td>{row.clock_in?new Date(row.clock_in).toLocaleTimeString("es-PE",{hour:"2-digit",minute:"2-digit"}):"—"}{row.clock_in_lat!=null&&row.clock_in_lng!=null&&<a className="map-link" href={mapLink(row.clock_in_lat,row.clock_in_lng)} target="_blank" rel="noreferrer"><MapPin size={14}/>Mapa · ±{Math.round(row.clock_in_accuracy||0)} m</a>}</td><td>{row.clock_in_photo?<button className="receipt-link" onClick={()=>void openPhoto(row.clock_in_photo!)}><Camera size={14}/> Ver foto</button>:"—"}</td><td>{row.clock_out?new Date(row.clock_out).toLocaleTimeString("es-PE",{hour:"2-digit",minute:"2-digit"}):"—"}{row.clock_out_lat!=null&&row.clock_out_lng!=null&&<a className="map-link" href={mapLink(row.clock_out_lat,row.clock_out_lng)} target="_blank" rel="noreferrer"><MapPin size={14}/>Mapa · ±{Math.round(row.clock_out_accuracy||0)} m</a>}</td><td>{row.clock_out_photo?<button className="receipt-link" onClick={()=>void openPhoto(row.clock_out_photo!)}><Camera size={14}/> Ver foto</button>:"—"}</td><td><b className="table-status">{row.status}</b></td></tr>)}</tbody></table></div>}</section></main>;
+  return <main className="content"><section className="welcome"><div><span className="live-dot">AUDITORÍA DE ASISTENCIA</span><h2>Marcaciones del personal</h2><p>Ubicación, precisión GPS y evidencia de entrada y salida.</p></div><button className="primary" disabled={loading} onClick={()=>void load()}><ArrowsClockwise className={loading?"spin":""} size={19}/>{loading?"Actualizando…":"Actualizar"}</button></section>{error&&<div className="module-error"><WarningCircle size={20}/>{error}</div>}{corrections.length>0&&<section className="panel correction-panel"><div className="panel-title"><div><span>CORRECCIONES SOLICITADAS</span><h3>{corrections.length} pendientes de revisión</h3></div></div>{corrections.map(request=><article className="correction-row" key={request.id}><div><strong>{people[request.user_id]||"Usuario DCS"} · {request.correction_type}</strong><span>Original: {request.correction_type==="Entrada"&&request.original_clock_in?new Date(request.original_clock_in).toLocaleString("es-PE"):request.original_clock_out?new Date(request.original_clock_out).toLocaleString("es-PE"):"Sin registro"}</span><span>Solicita: {request.proposed_time?new Date(request.proposed_time).toLocaleString("es-PE"):"Reabrir jornada"}</span><p>{request.reason}</p></div><div className="row-actions"><button disabled={reviewingCorrection===request.id} onClick={()=>void reviewCorrection(request,true)}>Aprobar</button><button disabled={reviewingCorrection===request.id} className="reject" onClick={()=>void reviewCorrection(request,false)}>Rechazar</button></div></article>)}</section>}<section className="panel data-panel">{loading?<div className="empty-state"><SpinnerGap className="spin" size={28}/>Cargando marcaciones…</div>:<div className="table-scroll"><table className="data-table attendance-table"><thead><tr><th>Fecha</th><th>Trabajador</th><th>Entrada</th><th>Evidencia entrada</th><th>Salida</th><th>Evidencia salida</th><th>Estado</th></tr></thead><tbody>{rows.map(row=><tr key={row.id}><td>{row.work_date}</td><td><strong>{people[row.user_id]||"Usuario DCS"}</strong></td><td>{row.clock_in?new Date(row.clock_in).toLocaleTimeString("es-PE",{hour:"2-digit",minute:"2-digit"}):"—"}{row.clock_in_lat!=null&&row.clock_in_lng!=null&&<a className="map-link" href={mapLink(row.clock_in_lat,row.clock_in_lng)} target="_blank" rel="noopener noreferrer"><MapPin size={14}/>Mapa · ±{Math.round(row.clock_in_accuracy||0)} m</a>}</td><td>{row.clock_in_photo?<button className="receipt-link" disabled={openingPhoto===row.clock_in_photo} onClick={()=>void openPhoto(row.clock_in_photo!)}><Camera size={14}/> {openingPhoto===row.clock_in_photo?"Abriendo…":"Ver foto"}</button>:"—"}</td><td>{row.clock_out?new Date(row.clock_out).toLocaleTimeString("es-PE",{hour:"2-digit",minute:"2-digit"}):"—"}{row.clock_out_lat!=null&&row.clock_out_lng!=null&&<a className="map-link" href={mapLink(row.clock_out_lat,row.clock_out_lng)} target="_blank" rel="noopener noreferrer"><MapPin size={14}/>Mapa · ±{Math.round(row.clock_out_accuracy||0)} m</a>}</td><td>{row.clock_out_photo?<button className="receipt-link" disabled={openingPhoto===row.clock_out_photo} onClick={()=>void openPhoto(row.clock_out_photo!)}><Camera size={14}/> {openingPhoto===row.clock_out_photo?"Abriendo…":"Ver foto"}</button>:"—"}</td><td><b className="table-status">{row.status}</b></td></tr>)}</tbody></table></div>}</section></main>;
 }

@@ -50,7 +50,7 @@ type Service = {
   vehicles: { name: string; plate: string } | null;
 };
 type Action =
-  "attendance" | "km" | "fuel" | "expense" | "finding" | "detail" | "progress" | null;
+  "attendance" | "attendance-correction" | "km" | "fuel" | "expense" | "finding" | "detail" | "progress" | null;
 
 export function OperativePortal({
   role,
@@ -86,6 +86,8 @@ export function OperativePortal({
     km: "",
     severity: "Media",
     description: "",
+    correction_type: "Entrada",
+    correction_time: new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,16),
     status: "En ruta",
   });
   const today = new Date().toISOString().slice(0, 10);
@@ -200,6 +202,8 @@ export function OperativePortal({
       concept: "",
       category: next === "fuel" ? "Gasolina" : "Peaje",
       description: "",
+      correction_type: shift?.clock_out ? "Salida" : "Entrada",
+      correction_time: new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,16),
       status:
         service?.status === "Programado"
           ? "Confirmado"
@@ -215,7 +219,12 @@ export function OperativePortal({
     setSaving(true);
     setError("");
     let result: { error: { message: string } | null };
-    if (action === "attendance") {
+    if(action==="attendance-correction"){
+      if(!shift){setError("No existe una marcación para corregir.");setSaving(false);return}
+      if(form.description.trim().length<8){setError("Explica el error con al menos 8 caracteres.");setSaving(false);return}
+      const proposedTime=form.correction_type==="Reabrir"?null:new Date(form.correction_time).toISOString();
+      result=await supabase.from("attendance_correction_requests").insert({time_entry_id:shift.id,user_id:session.user.id,correction_type:form.correction_type,proposed_time:proposedTime,reason:form.description.trim(),original_clock_in:shift.clock_in,original_clock_out:shift.clock_out});
+    } else if (action === "attendance") {
       if (!receipt) { setError("Debes tomar una foto para registrar la marcación."); setSaving(false); return; }
       let position: GeolocationPosition;
       try { position = await currentPosition(); } catch { setError("Activa el permiso de ubicación del navegador e inténtalo nuevamente."); setSaving(false); return; }
@@ -289,7 +298,7 @@ export function OperativePortal({
     if (result.error) setError(result.error.message);
     else {
       setAction(null);
-      setMessage(action === "attendance" ? activeShift ? "Salida registrada con ubicación y evidencia." : "Entrada registrada con ubicación y evidencia." : "Registro guardado correctamente.");
+      setMessage(action === "attendance" ? activeShift ? "Salida registrada con ubicación y evidencia." : "Entrada registrada con ubicación y evidencia." : action === "attendance-correction" ? "Solicitud enviada a administración para revisión." : "Registro guardado correctamente.");
       await loadData();
     }
     setSaving(false);
@@ -427,6 +436,7 @@ export function OperativePortal({
                 {completed} de {services.length}
               </b>
             </div>
+            {shift&&<button className="shift-correction" onClick={()=>open("attendance-correction")}><WarningCircle size={16}/>Reportar marcación incorrecta</button>}
           </article>
           <article className="panel">
             <div className="panel-title">
@@ -494,6 +504,8 @@ export function OperativePortal({
                 <h3>
                   {action === "km"
                     ? "Registrar kilometraje"
+                    : action === "attendance-correction"
+                      ? "Solicitar corrección"
                     : action === "attendance"
                       ? activeShift ? "Registrar salida" : "Registrar entrada"
                     : action === "fuel"
@@ -504,7 +516,7 @@ export function OperativePortal({
                           ? "Reportar incidencia"
                           : "Actualizar servicio"}
                 </h3>
-                {action !== "attendance" && action !== "fuel" && action !== "expense" && (
+                {action !== "attendance" && action !== "attendance-correction" && action !== "fuel" && action !== "expense" && (
                   <label>
                     Servicio
                     <select
@@ -524,6 +536,7 @@ export function OperativePortal({
                   </label>
                 )}
                 {action === "attendance" && <div className="attendance-proof"><MapPin size={25}/><div><strong>Ubicación obligatoria</strong><p>Al guardar solicitaremos tu ubicación GPS exacta.</p></div><div className="receipt-picker"><strong>Foto tomada ahora</strong><div><label className="receipt-option"><Camera size={22}/> Abrir cámara<input type="file" accept="image/*" capture="environment" onChange={(e)=>setReceipt(e.target.files?.[0]||null)}/></label></div>{receipt&&<b className="receipt-selected">✓ Evidencia lista</b>}<small>La galería no está habilitada para esta marcación.</small></div></div>}
+                {action === "attendance-correction"&&<><div className="attendance-correction-note"><WarningCircle size={20}/><p>La marcación original no se elimina. Administración revisará esta solicitud y quedará registrada en la auditoría.</p></div><label>¿Qué deseas corregir?<select value={form.correction_type} onChange={e=>setForm({...form,correction_type:e.target.value})}><option>Entrada</option><option>Salida</option>{shift?.clock_out&&<option>Reabrir</option>}</select></label>{form.correction_type!=="Reabrir"&&<label>Hora correcta<input type="datetime-local" required value={form.correction_time} onChange={e=>setForm({...form,correction_time:e.target.value})}/></label>}<label>Motivo<textarea required minLength={8} value={form.description} onChange={e=>setForm({...form,description:e.target.value})} placeholder="Explica qué marcaste por error y cuál es la corrección…"/></label></>}
                 {(action === "km" || action === "progress") && (
                   <label>
                     Kilometraje actual
@@ -700,7 +713,7 @@ export function OperativePortal({
                     Cancelar
                   </button>
                   <button className="primary" disabled={saving}>
-                    {saving ? "Guardando…" : action === "attendance" ? activeShift ? "Marcar salida" : "Marcar entrada" : action === "fuel" || action === "expense" ? "Guardar gasto" : "Guardar"}
+                    {saving ? "Guardando…" : action === "attendance" ? activeShift ? "Marcar salida" : "Marcar entrada" : action === "attendance-correction" ? "Enviar solicitud" : action === "fuel" || action === "expense" ? "Guardar gasto" : "Guardar"}
                   </button>
                 </div>
               </form>

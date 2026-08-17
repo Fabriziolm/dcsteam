@@ -320,6 +320,13 @@ function Header({
     voucherCount: 0,
     voucherTotal: 0,
     weeklyTotal: 0,
+    billableServices: [] as Array<{
+      id: string;
+      service_date: string;
+      billing_remind_at: string | null;
+      clients: { name: string } | null;
+      vehicles: { plate: string } | null;
+    }>,
   });
   useEffect(() => {
     if (!supabase) return;
@@ -329,7 +336,7 @@ function Header({
     weekStart.setDate(weekStart.getDate() - ((weekStart.getDay() + 6) % 7));
     const weekDate = weekStart.toISOString().slice(0, 10);
     const loadNotices = async () => {
-      const [findingResult, expenseResult, dailyResult, weeklyResult] =
+      const [findingResult, expenseResult, dailyResult, weeklyResult, serviceResult] =
         await Promise.all([
           client
             .from("findings")
@@ -354,6 +361,14 @@ function Header({
             .not("receipt_url", "is", null)
             .neq("status", "Rechazado")
             .gte("expense_date", weekDate),
+          client
+            .from("services")
+            .select("id,service_date,billing_remind_at,clients(name),vehicles(plate)")
+            .eq("status", "Completado")
+            .eq("invoiced", false)
+            .or(`billing_remind_at.is.null,billing_remind_at.lte.${new Date().toISOString()}`)
+            .order("service_date", { ascending: false })
+            .limit(20),
         ]);
       setNotices({
         findings: findingResult.count ?? 0,
@@ -369,15 +384,27 @@ function Header({
             (sum, expense) => sum + Number(expense.amount),
             0,
           ) ?? 0,
+        billableServices: (serviceResult.data ?? []) as unknown as Array<{
+          id: string;
+          service_date: string;
+          billing_remind_at: string | null;
+          clients: { name: string } | null;
+          vehicles: { plate: string } | null;
+        }>,
       });
     };
     void loadNotices();
     if (role !== "Administrador") return;
     const channel = client
-      .channel("admin-expense-alerts")
+      .channel("admin-operational-alerts")
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "expenses" },
+        () => void loadNotices(),
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "services" },
         () => void loadNotices(),
       )
       .subscribe();
@@ -385,7 +412,23 @@ function Header({
       void client.removeChannel(channel);
     };
   }, [role]);
-  const total = notices.findings + notices.expenses;
+  const handleBillingAlert = async (serviceId: string, action: "invoiced" | "tomorrow") => {
+    if (!supabase) return;
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    tomorrow.setHours(8, 0, 0, 0);
+    const update = action === "invoiced"
+      ? { invoiced: true, billing_remind_at: null, updated_at: new Date().toISOString() }
+      : { billing_remind_at: tomorrow.toISOString(), updated_at: new Date().toISOString() };
+    const result = await supabase.from("services").update(update).eq("id", serviceId);
+    if (!result.error) {
+      setNotices((current) => ({
+        ...current,
+        billableServices: current.billableServices.filter((service) => service.id !== serviceId),
+      }));
+    }
+  };
+  const total = notices.findings + notices.expenses + notices.billableServices.length;
   const todayLabel = new Intl.DateTimeFormat("es-PE", {
     weekday: "long",
     day: "numeric",
@@ -419,6 +462,36 @@ function Header({
           {open && (
             <div className="notification-menu">
               <strong>Notificaciones</strong>
+              {role === "Administrador" && (
+                <div className="billing-alert">
+                  <CurrencyDollar size={18} />
+                  <span>
+                    <b>
+                      {notices.billableServices.length} servicios cerrados por facturar
+                    </b>
+                    <small>Revisar y facturar al cierre del día.</small>
+                    {notices.billableServices.slice(0, 3).map((service) => (
+                      <span className="billing-alert-item" key={service.id}>
+                        <small>
+                          {service.service_date} · {service.clients?.name || "Cliente pendiente"} · {service.vehicles?.plate || "Sin unidad"}
+                        </small>
+                        <span>
+                          <button onClick={() => void handleBillingAlert(service.id, "invoiced")}>Ya facturado</button>
+                          <button className="remind-button" onClick={() => void handleBillingAlert(service.id, "tomorrow")}>Recordar mañana</button>
+                        </span>
+                      </span>
+                    ))}
+                    <button className="go-billing-button"
+                      onClick={() => {
+                        onNavigate("Facturación");
+                        setOpen(false);
+                      }}
+                    >
+                      Ir a facturar
+                    </button>
+                  </span>
+                </div>
+              )}
               {role === "Administrador" && (
                 <div className="voucher-alert">
                   <Receipt size={18} />

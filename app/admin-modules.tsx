@@ -14,6 +14,16 @@ import { FormEvent, useCallback, useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
 
 type Client = { id: string; name: string };
+type BillableService = {
+  id: string;
+  service_date: string;
+  merchandise: string | null;
+  origin: string | null;
+  destination: string | null;
+  client_id: string | null;
+  clients: { name: string } | null;
+  vehicles: { plate: string } | null;
+};
 type Vehicle = {
   id: string;
   name: string;
@@ -66,13 +76,15 @@ function Notice({ error, message }: { error: string; message: string }) {
 
 export function BillingManagement() {
   const [rows, setRows] = useState<Invoice[]>([]),
-    [clients, setClients] = useState<Client[]>([]);
+    [clients, setClients] = useState<Client[]>([]),
+    [billableServices, setBillableServices] = useState<BillableService[]>([]);
   const [loading, setLoading] = useState(true),
     [saving, setSaving] = useState(false),
     [show, setShow] = useState(false);
   const [error, setError] = useState(""),
     [message, setMessage] = useState("");
   const [form, setForm] = useState({
+    service_id: "",
     invoice_number: "",
     issue_date: new Date().toISOString().slice(0, 10),
     client_id: "",
@@ -83,7 +95,7 @@ export function BillingManagement() {
   const load = useCallback(async () => {
     if (!supabase) return;
     setLoading(true);
-    const [a, b] = await Promise.all([
+    const [a, b, c] = await Promise.all([
       supabase
         .from("invoices")
         .select(
@@ -96,39 +108,62 @@ export function BillingManagement() {
         .select("id,name")
         .eq("active", true)
         .order("name"),
+      supabase
+        .from("services")
+        .select("id,service_date,merchandise,origin,destination,client_id,clients(name),vehicles(plate)")
+        .eq("status", "Completado")
+        .eq("invoiced", false)
+        .order("service_date", { ascending: false }),
     ]);
-    if (a.error || b.error)
-      setError(a.error?.message || b.error?.message || "");
+    if (a.error || b.error || c.error)
+      setError(a.error?.message || b.error?.message || c.error?.message || "");
     else {
       setRows((a.data || []) as unknown as Invoice[]);
       setClients((b.data || []) as Client[]);
+      setBillableServices((c.data || []) as unknown as BillableService[]);
     }
     setLoading(false);
   }, []);
   useEffect(() => {
     void load();
+    if (!supabase) return;
+    const client = supabase;
+    const channel = client.channel("billing-live")
+      .on("postgres_changes", { event: "*", schema: "public", table: "invoices" }, () => void load())
+      .on("postgres_changes", { event: "*", schema: "public", table: "services" }, () => void load())
+      .subscribe();
+    return () => { void client.removeChannel(channel); };
   }, [load]);
   async function save(e: FormEvent) {
     e.preventDefault();
     if (!supabase) return;
     setSaving(true);
     setError("");
+    setMessage("");
     const { data } = await supabase.auth.getUser();
     const amount = Number(form.amount_with_tax);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setError("El importe de la factura debe ser mayor que cero.");
+      setSaving(false);
+      return;
+    }
     const r = await supabase
       .from("invoices")
       .insert({
         ...form,
-        invoice_number: form.invoice_number || null,
+        service_id: form.service_id || null,
+        invoice_number: form.invoice_number.trim().toUpperCase() || null,
         amount_with_tax: amount,
         amount_without_tax: Number((amount / 1.18).toFixed(2)),
         paid_amount: form.status === "Pagado" ? amount : 0,
+        concept: form.concept.trim() || null,
         created_by: data.user?.id,
       });
-    if (r.error) setError(r.error.message);
+    if (r.error) setError(r.error.code === "23505" ? "Ese número de factura o servicio ya fue registrado." : r.error.message);
     else {
-      setMessage("Factura registrada.");
+      setMessage(form.service_id ? "Factura registrada y alerta del servicio cerrada." : "Factura registrada.");
       setShow(false);
+      setForm({service_id:"",invoice_number:"",issue_date:new Date().toISOString().slice(0,10),client_id:"",amount_with_tax:"",concept:"",status:"Pendiente"});
       await load();
     }
     setSaving(false);
@@ -148,9 +183,9 @@ export function BillingManagement() {
           <h2>Facturación</h2>
           <p>Registro y seguimiento de comprobantes por cliente.</p>
         </div>
-        <button className="primary" onClick={() => setShow(!show)}>
+        <button className="primary" onClick={() => { setShow(!show); setError(""); setMessage(""); }}>
           <Plus size={19} />
-          Nueva factura
+          {show ? "Cerrar formulario" : "Nueva factura"}
         </button>
       </section>
       <Notice error={error} message={message} />
@@ -167,6 +202,10 @@ export function BillingManagement() {
             S/ {pending.toLocaleString("es-PE", { minimumFractionDigits: 2 })}
           </strong>
         </article>
+        <article className="metric purple">
+          <span>Servicios por facturar</span>
+          <strong>{billableServices.length}</strong>
+        </article>
       </section>
       {show && (
         <form className="service-form panel" onSubmit={save}>
@@ -177,9 +216,35 @@ export function BillingManagement() {
             </div>
           </div>
           <div className="form-grid">
+            <label className="wide">
+              Servicio cerrado
+              <select
+                value={form.service_id}
+                onChange={(e) => {
+                  const service = billableServices.find((item) => item.id === e.target.value);
+                  setForm({
+                    ...form,
+                    service_id: e.target.value,
+                    client_id: service?.client_id || form.client_id,
+                    concept: service
+                      ? `${service.merchandise || "Servicio de transporte"} · ${service.origin || "Origen pendiente"} → ${service.destination || "Destino pendiente"}`
+                      : form.concept,
+                  });
+                }}
+              >
+                <option value="">Factura sin servicio asociado</option>
+                {billableServices.map((service) => (
+                  <option key={service.id} value={service.id}>
+                    {service.service_date} · {service.clients?.name || "Sin cliente"} · {service.vehicles?.plate || "Sin unidad"}
+                  </option>
+                ))}
+              </select>
+            </label>
             <label>
               Número
               <input
+                required
+                placeholder="Ej. F001-000123"
                 value={form.invoice_number}
                 onChange={(e) =>
                   setForm({ ...form, invoice_number: e.target.value })
@@ -218,7 +283,7 @@ export function BillingManagement() {
               Importe con IGV
               <input
                 type="number"
-                min="0"
+                min="0.01"
                 step="0.01"
                 required
                 value={form.amount_with_tax}
@@ -315,6 +380,7 @@ export function ExpensesManagement() {
   const [rows, setRows] = useState<Expense[]>([]),
     [loading, setLoading] = useState(true),
     [downloading, setDownloading] = useState(false),
+    [reviewingId, setReviewingId] = useState(""),
     [error, setError] = useState(""),
     [message, setMessage] = useState("");
   const load = useCallback(async () => {
@@ -334,32 +400,56 @@ export function ExpensesManagement() {
   }, []);
   useEffect(() => {
     void load();
+    if (!supabase) return;
+    const client = supabase;
+    const channel = client.channel("expenses-management-live")
+      .on("postgres_changes", { event: "*", schema: "public", table: "expenses" }, () => void load())
+      .subscribe();
+    return () => { void client.removeChannel(channel); };
   }, [load]);
   async function review(id: string, status: string) {
     if (!supabase) return;
+    const row = rows.find((item) => item.id === id);
+    if (!row) return;
+    let reviewNote: string | null = null;
+    if (status === "Aprobado" && !window.confirm(`¿Aprobar el gasto de S/ ${Number(row.amount).toFixed(2)} por ${row.concept}?`)) return;
+    if (status === "Rechazado") {
+      reviewNote = window.prompt("Indica el motivo del rechazo:")?.trim() || null;
+      if (!reviewNote) return;
+    }
+    setReviewingId(id); setError(""); setMessage("");
     const { data } = await supabase.auth.getUser();
+    const reviewData: Record<string, string | null | undefined> = {
+      status,
+      reviewed_by: data.user?.id,
+      reviewed_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+    if (reviewNote) reviewData.notes = reviewNote;
     const r = await supabase
       .from("expenses")
-      .update({
-        status,
-        reviewed_by: data.user?.id,
-        reviewed_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      })
+      .update(reviewData)
       .eq("id", id);
     if (r.error) setError(r.error.message);
     else {
       setMessage(`Gasto ${status.toLowerCase()}.`);
       await load();
     }
+    setReviewingId("");
   }
   async function openReceipt(path: string) {
     if (!supabase) return;
+    const receiptWindow = window.open("", "_blank");
+    if (!receiptWindow) {
+      setError("El navegador bloqueó la ventana del comprobante. Habilita las ventanas emergentes para DCS.");
+      return;
+    }
+    receiptWindow.document.title = "Cargando comprobante…";
     const { data, error: signError } = await supabase.storage
       .from("expense-receipts")
       .createSignedUrl(path, 60);
-    if (signError) setError(signError.message);
-    else window.open(data.signedUrl, "_blank", "noopener,noreferrer");
+    if (signError) { receiptWindow.close(); setError(`No se pudo abrir el comprobante: ${signError.message}`); }
+    else { receiptWindow.opener = null; receiptWindow.location.href = data.signedUrl; }
   }
   async function downloadWeeklyFolder() {
     if (!supabase || downloading) return;
@@ -561,11 +651,12 @@ export function ExpensesManagement() {
               <td>
                 {r.status === "Pendiente" ? (
                   <div className="row-actions">
-                    <button onClick={() => void review(r.id, "Aprobado")}>
-                      Aprobar
+                    <button disabled={reviewingId === r.id} onClick={() => void review(r.id, "Aprobado")}>
+                      {reviewingId === r.id ? "Guardando…" : "Aprobar"}
                     </button>
                     <button
                       className="reject"
+                      disabled={reviewingId === r.id}
                       onClick={() => void review(r.id, "Rechazado")}
                     >
                       Rechazar
@@ -588,6 +679,7 @@ export function FleetManagement() {
     [loading, setLoading] = useState(true),
     [show, setShow] = useState(false),
     [saving, setSaving] = useState(false),
+    [updatingId, setUpdatingId] = useState(""),
     [error, setError] = useState(""),
     [message, setMessage] = useState("");
   const [form, setForm] = useState({
@@ -610,34 +702,64 @@ export function FleetManagement() {
   }, []);
   useEffect(() => {
     void load();
+    if (!supabase) return;
+    const client = supabase;
+    const channel = client.channel("fleet-management-live")
+      .on("postgres_changes", { event: "*", schema: "public", table: "vehicles" }, () => void load())
+      .subscribe();
+    return () => { void client.removeChannel(channel); };
   }, [load]);
   async function save(e: FormEvent) {
     e.preventDefault();
     if (!supabase) return;
     setSaving(true);
+    setError(""); setMessage("");
+    const compactPlate = form.plate.toUpperCase().replace(/[^A-Z0-9]/g, "");
+    const odometer = Number(form.current_km);
+    if (compactPlate.length !== 6) {
+      setError("La placa debe contener 6 letras o números, por ejemplo AWX-880.");
+      setSaving(false);
+      return;
+    }
+    if (!Number.isFinite(odometer) || odometer < 0) {
+      setError("Ingresa un kilometraje válido.");
+      setSaving(false);
+      return;
+    }
+    const normalizedPlate = `${compactPlate.slice(0,3)}-${compactPlate.slice(3)}`;
     const r = await supabase
       .from("vehicles")
       .insert({
         ...form,
-        current_km: Number(form.current_km),
-        plate: form.plate.toUpperCase(),
+        name: form.name.trim(),
+        current_km: odometer,
+        plate: normalizedPlate,
       });
-    if (r.error) setError(r.error.message);
+    if (r.error) setError(r.error.code === "23505" ? "Ya existe una unidad con esa placa." : r.error.message);
     else {
       setMessage("Unidad registrada.");
       setShow(false);
+      setForm({name:"",plate:"",fuel_type:"Gasolina",current_km:"0",status:"Disponible"});
       await load();
     }
     setSaving(false);
   }
   async function change(id: string, status: string) {
     if (!supabase) return;
+    const vehicle = rows.find((item) => item.id === id);
+    if (!vehicle || vehicle.status === status) return;
+    if ((status === "Mantenimiento" || status === "Inactivo") && !window.confirm(`¿Cambiar ${vehicle.name} · ${vehicle.plate} a ${status}? No estará disponible para nuevas asignaciones.`)) return;
+    setUpdatingId(id); setError(""); setMessage("");
     const r = await supabase
       .from("vehicles")
-      .update({ status, updated_at: new Date().toISOString() })
+      .update({ status, active: status !== "Inactivo" && status !== "Mantenimiento", updated_at: new Date().toISOString() })
       .eq("id", id);
     if (r.error) setError(r.error.message);
-    else await load();
+    else {
+      setMessage(`Estado de la unidad actualizado a ${status}.`);
+      await load();
+    }
+    setUpdatingId("");
   }
   return (
     <main className="content">
@@ -647,9 +769,9 @@ export function FleetManagement() {
           <h2>Vehículos</h2>
           <p>Kilometraje y disponibilidad de las unidades.</p>
         </div>
-        <button className="primary" onClick={() => setShow(!show)}>
+        <button className="primary" onClick={() => { setShow(!show); setError(""); setMessage(""); }}>
           <Plus size={19} />
-          Nueva unidad
+          {show ? "Cerrar formulario" : "Nueva unidad"}
         </button>
       </section>
       <Notice error={error} message={message} />
@@ -668,8 +790,10 @@ export function FleetManagement() {
               Placa
               <input
                 required
+                maxLength={7}
+                placeholder="AWX-880"
                 value={form.plate}
-                onChange={(e) => setForm({ ...form, plate: e.target.value })}
+                onChange={(e) => setForm({ ...form, plate: e.target.value.toUpperCase().replace(/[^A-Z0-9-]/g, "") })}
               />
             </label>
             <label>
@@ -705,7 +829,7 @@ export function FleetManagement() {
               Cancelar
             </button>
             <button className="primary" disabled={saving}>
-              Guardar unidad
+              {saving ? "Guardando…" : "Guardar unidad"}
             </button>
           </div>
         </form>
@@ -731,6 +855,7 @@ export function FleetManagement() {
                 </span>
               </div>
               <select
+                disabled={updatingId === v.id}
                 value={v.status}
                 onChange={(e) => void change(v.id, e.target.value)}
               >
@@ -763,6 +888,7 @@ export function ClientsManagement() {
     [loading, setLoading] = useState(true),
     [show, setShow] = useState(false),
     [saving, setSaving] = useState(false),
+    [updatingId, setUpdatingId] = useState(""),
     [error, setError] = useState(""),
     [message, setMessage] = useState("");
   const [form, setForm] = useState({
@@ -792,17 +918,24 @@ export function ClientsManagement() {
     if (!supabase) return;
     setSaving(true);
     setError("");
+    setMessage("");
+    const ruc = form.ruc.replace(/\D/g, "");
+    if (ruc && ruc.length !== 11) {
+      setError("El RUC debe contener exactamente 11 dígitos.");
+      setSaving(false);
+      return;
+    }
     const r = await supabase
       .from("clients")
       .insert({
         name: form.name.trim(),
-        legal_name: form.legal_name || null,
-        ruc: form.ruc || null,
-        contact_name: form.contact_name || null,
-        phone: form.phone || null,
-        email: form.email || null,
+        legal_name: form.legal_name.trim() || null,
+        ruc: ruc || null,
+        contact_name: form.contact_name.trim() || null,
+        phone: form.phone.trim() || null,
+        email: form.email.trim().toLowerCase() || null,
       });
-    if (r.error) setError(r.error.message);
+    if (r.error) setError(r.error.code === "23505" ? "Ya existe un cliente con ese nombre o RUC." : r.error.message);
     else {
       setMessage("Cliente registrado.");
       setShow(false);
@@ -820,12 +953,18 @@ export function ClientsManagement() {
   }
   async function toggle(client: (typeof rows)[number]) {
     if (!supabase) return;
+    if (client.active && !window.confirm(`¿Desactivar a ${client.name}? Ya no aparecerá al programar nuevos servicios.`)) return;
+    setUpdatingId(client.id); setError(""); setMessage("");
     const r = await supabase
       .from("clients")
       .update({ active: !client.active, updated_at: new Date().toISOString() })
       .eq("id", client.id);
     if (r.error) setError(r.error.message);
-    else await load();
+    else {
+      setMessage(client.active ? "Cliente desactivado." : "Cliente activado nuevamente.");
+      await load();
+    }
+    setUpdatingId("");
   }
   return (
     <main className="content">
@@ -837,9 +976,9 @@ export function ClientsManagement() {
             Datos fiscales y contactos utilizados en servicios y facturación.
           </p>
         </div>
-        <button className="primary" onClick={() => setShow(!show)}>
+        <button className="primary" onClick={() => { setShow(!show); setError(""); setMessage(""); }}>
           <Plus size={19} />
-          Nuevo cliente
+          {show ? "Cerrar formulario" : "Nuevo cliente"}
         </button>
       </section>
       <Notice error={error} message={message} />
@@ -867,8 +1006,11 @@ export function ClientsManagement() {
               RUC
               <input
                 inputMode="numeric"
+                maxLength={11}
+                pattern="[0-9]{11}"
+                title="Ingresa los 11 dígitos del RUC"
                 value={form.ruc}
-                onChange={(e) => setForm({ ...form, ruc: e.target.value })}
+                onChange={(e) => setForm({ ...form, ruc: e.target.value.replace(/\D/g, "") })}
               />
             </label>
             <label>
@@ -932,9 +1074,10 @@ export function ClientsManagement() {
               <td>
                 <button
                   className={c.active ? "toggle-active" : "toggle-inactive"}
+                  disabled={updatingId === c.id}
                   onClick={() => void toggle(c)}
                 >
-                  {c.active ? "Activo" : "Inactivo"}
+                  {updatingId === c.id ? "Guardando…" : c.active ? "Activo" : "Inactivo"}
                 </button>
               </td>
             </tr>
