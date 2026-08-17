@@ -13,6 +13,7 @@ export function LoginScreen() {
   const [password, setPassword] = useState("");
   const [confirmation, setConfirmation] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [rememberMe, setRememberMe] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -52,6 +53,9 @@ export function LoginScreen() {
         setMessage("Cuenta creada correctamente.");
       }
     } else {
+      localStorage.setItem("dcs_remember_session", String(rememberMe));
+      if (rememberMe) sessionStorage.removeItem("dcs_temporary_session");
+      else sessionStorage.setItem("dcs_temporary_session", "active");
       const { error: authError } = await supabase.auth.signInWithPassword({ email, password });
       if (authError) setError("Correo o contraseña incorrectos. Verifica tus datos.");
     }
@@ -62,6 +66,9 @@ export function LoginScreen() {
     if (!supabase) return;
     setLoading(true);
     setError("");
+    localStorage.setItem("dcs_remember_session", String(rememberMe));
+    if (rememberMe) sessionStorage.removeItem("dcs_temporary_session");
+    else sessionStorage.setItem("dcs_temporary_session", "active");
     const redirectTo = `${window.location.origin}${window.location.pathname}`;
     const { error: oauthError } = await supabase.auth.signInWithOAuth({ provider, options: { redirectTo } });
     if (oauthError) {
@@ -103,6 +110,7 @@ export function LoginScreen() {
           {mode === "signup" && <label>Nombre completo<div className="login-input"><UserPlus size={19} /><input type="text" value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="Nombre y apellido" autoComplete="name" required /></div></label>}
           <label>Correo electrónico<div className="login-input"><Envelope size={19} /><input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="nombre@empresa.com" autoComplete="email" required /></div></label>
           <label>Contraseña<div className="login-input"><Lock size={19} /><input type={showPassword ? "text" : "password"} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Mínimo 6 caracteres" autoComplete={mode === "login" ? "current-password" : "new-password"} minLength={6} required /><button type="button" onClick={() => setShowPassword(!showPassword)} aria-label={showPassword ? "Ocultar contraseña" : "Mostrar contraseña"}>{showPassword ? <EyeSlash size={19} /> : <Eye size={19} />}</button></div></label>
+          {mode === "login" && <label className="remember-option"><input type="checkbox" checked={rememberMe} onChange={e=>setRememberMe(e.target.checked)}/><span><strong>Recordarme en este dispositivo</strong><small>Mantener mi sesión iniciada.</small></span></label>}
           {mode === "signup" && <label>Confirmar contraseña<div className="login-input"><Lock size={19} /><input type={showPassword ? "text" : "password"} value={confirmation} onChange={(e) => setConfirmation(e.target.value)} placeholder="Repite la contraseña" autoComplete="new-password" minLength={6} required /></div></label>}
           {error && <div className="login-error">{error}</div>}
           {message && <div className="login-success">{message}</div>}

@@ -211,7 +211,14 @@ export default function App() {
 
   useEffect(() => {
     if (!supabase) return;
-    void supabase.auth.getSession().then(({ data }) => { setSession(data.session); setLoading(false); });
+    const client = supabase;
+    void (async () => {
+      const temporary = localStorage.getItem("dcs_remember_session") === "false";
+      const tabIsActive = sessionStorage.getItem("dcs_temporary_session") === "active";
+      if (temporary && !tabIsActive) await client.auth.signOut();
+      const { data } = await client.auth.getSession();
+      setSession(data.session); setLoading(false);
+    })();
     const { data } = supabase.auth.onAuthStateChange((_event, nextSession) => { setSession(nextSession); setActive(null); });
     return () => data.subscription.unsubscribe();
   }, []);
