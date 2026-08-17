@@ -1,5 +1,13 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="104" fill="#ffffff"/>
-  <rect x="10" y="10" width="492" height="492" rx="94" fill="none" stroke="#0b7181" stroke-width="20"/>
-  <image href="dcs-logo.png" x="72" y="42" width="368" height="428" preserveAspectRatio="xMidYMid meet"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Express by DCS Company">
+  <defs>
+    <linearGradient id="background" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#075f70"/>
+      <stop offset="1" stop-color="#58a8a5"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="108" fill="url(#background)"/>
+  <path d="M108 154h116c73 0 118 41 118 102s-45 102-118 102H108V154zm75 61v82h39c27 0 43-15 43-41s-16-41-43-41h-39z" fill="#fff"/>
+  <path d="M354 154h50l-50 204h-50l50-204z" fill="#8de0c2"/>
+  <path d="M104 390h304" stroke="#fff" stroke-width="12" stroke-linecap="round" opacity=".9"/>
+  <text x="256" y="438" fill="#fff" font-family="Arial, sans-serif" font-size="34" font-weight="700" text-anchor="middle" letter-spacing="9">DCS</text>
 </svg>
