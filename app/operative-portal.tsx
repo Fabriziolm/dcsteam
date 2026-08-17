@@ -50,7 +50,7 @@ type Service = {
   vehicles: { name: string; plate: string } | null;
 };
 type Action =
-  "km" | "fuel" | "expense" | "finding" | "detail" | "progress" | null;
+  "attendance" | "km" | "fuel" | "expense" | "finding" | "detail" | "progress" | null;
 
 export function OperativePortal({
   role,
@@ -178,37 +178,8 @@ export function OperativePortal({
   );
   const hours = `${String(Math.floor(elapsed / 3600000)).padStart(2, "0")}:${String(Math.floor(elapsed / 60000) % 60).padStart(2, "0")}`;
 
-  async function toggleShift() {
-    if (!supabase) return;
-    setSaving(true);
-    setError("");
-    setMessage("");
-    const result =
-      activeShift && shift
-        ? await supabase
-            .from("time_entries")
-            .update({
-              clock_out: new Date().toISOString(),
-              status: "Cerrada",
-              updated_at: new Date().toISOString(),
-            })
-            .eq("id", shift.id)
-        : await supabase.from("time_entries").insert({
-            user_id: session.user.id,
-            work_date: today,
-            clock_in: new Date().toISOString(),
-            status: "Abierta",
-          });
-    if (result.error) setError(result.error.message);
-    else {
-      setMessage(
-        activeShift
-          ? "Jornada cerrada correctamente."
-          : "Jornada iniciada correctamente.",
-      );
-      await loadData();
-    }
-    setSaving(false);
+  function currentPosition() {
+    return new Promise<GeolocationPosition>((resolve, reject) => navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }));
   }
 
   function open(next: Action, service?: Service) {
@@ -242,7 +213,20 @@ export function OperativePortal({
     setSaving(true);
     setError("");
     let result: { error: { message: string } | null };
-    if (action === "fuel" || action === "expense") {
+    if (action === "attendance") {
+      if (!receipt) { setError("Debes tomar una foto para registrar la marcación."); setSaving(false); return; }
+      let position: GeolocationPosition;
+      try { position = await currentPosition(); } catch { setError("Activa el permiso de ubicación del navegador e inténtalo nuevamente."); setSaving(false); return; }
+      const mark = activeShift ? "salida" : "entrada";
+      const extension = receipt.name.split(".").pop()?.toLowerCase() || "jpg";
+      const evidencePath = `${session.user.id}/${today}/${mark}_${crypto.randomUUID()}.${extension}`;
+      const upload = await supabase.storage.from("attendance-evidence").upload(evidencePath, receipt, { contentType: receipt.type, upsert: false });
+      if (upload.error) { setError(`No se pudo subir la evidencia: ${upload.error.message}`); setSaving(false); return; }
+      const location = { latitude: position.coords.latitude, longitude: position.coords.longitude, accuracy: position.coords.accuracy };
+      result = activeShift && shift
+        ? await supabase.from("time_entries").update({ clock_out:new Date().toISOString(), clock_out_lat:location.latitude, clock_out_lng:location.longitude, clock_out_accuracy:location.accuracy, clock_out_photo:evidencePath, status:"Cerrada", updated_at:new Date().toISOString() }).eq("id",shift.id)
+        : await supabase.from("time_entries").insert({ user_id:session.user.id, work_date:today, clock_in:new Date().toISOString(), clock_in_lat:location.latitude, clock_in_lng:location.longitude, clock_in_accuracy:location.accuracy, clock_in_photo:evidencePath, status:"Abierta" });
+    } else if (action === "fuel" || action === "expense") {
       if (!receipt) {
         setError("Toma o selecciona una foto del comprobante.");
         setSaving(false);
@@ -294,7 +278,7 @@ export function OperativePortal({
     if (result.error) setError(result.error.message);
     else {
       setAction(null);
-      setMessage("Registro guardado correctamente.");
+      setMessage(action === "attendance" ? activeShift ? "Salida registrada con ubicación y evidencia." : "Entrada registrada con ubicación y evidencia." : "Registro guardado correctamente.");
       await loadData();
     }
     setSaving(false);
@@ -320,7 +304,7 @@ export function OperativePortal({
         <button
           disabled={saving || Boolean(shift?.clock_out)}
           className={activeShift ? "primary completed" : "primary"}
-          onClick={() => void toggleShift()}
+          onClick={() => open("attendance")}
         >
           {activeShift ? <CheckCircle size={19} /> : <Clock size={19} />}{" "}
           {activeShift
@@ -499,6 +483,8 @@ export function OperativePortal({
                 <h3>
                   {action === "km"
                     ? "Registrar kilometraje"
+                    : action === "attendance"
+                      ? activeShift ? "Registrar salida" : "Registrar entrada"
                     : action === "fuel"
                       ? "Registrar combustible"
                       : action === "expense"
@@ -507,7 +493,7 @@ export function OperativePortal({
                           ? "Reportar incidencia"
                           : "Actualizar servicio"}
                 </h3>
-                {action !== "fuel" && action !== "expense" && (
+                {action !== "attendance" && action !== "fuel" && action !== "expense" && (
                   <label>
                     Servicio
                     <select
@@ -526,6 +512,7 @@ export function OperativePortal({
                     </select>
                   </label>
                 )}
+                {action === "attendance" && <div className="attendance-proof"><MapPin size={25}/><div><strong>Ubicación obligatoria</strong><p>Al guardar solicitaremos tu ubicación GPS exacta.</p></div><div className="receipt-picker"><strong>Foto tomada ahora</strong><div><label className="receipt-option"><Camera size={22}/> Abrir cámara<input type="file" accept="image/*" capture="environment" onChange={(e)=>setReceipt(e.target.files?.[0]||null)}/></label></div>{receipt&&<b className="receipt-selected">✓ Evidencia lista</b>}<small>La galería no está habilitada para esta marcación.</small></div></div>}
                 {(action === "km" || action === "progress") && (
                   <label>
                     Kilometraje actual
@@ -715,7 +702,7 @@ export function OperativePortal({
                     Cancelar
                   </button>
                   <button className="primary" disabled={saving}>
-                    {saving ? "Guardando…" : "Guardar gasto"}
+                    {saving ? "Guardando…" : action === "attendance" ? activeShift ? "Marcar salida" : "Marcar entrada" : action === "fuel" || action === "expense" ? "Guardar gasto" : "Guardar"}
                   </button>
                 </div>
               </form>
