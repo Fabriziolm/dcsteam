@@ -10,6 +10,7 @@
   "theme_color": "#10253f",
   "lang": "es-PE",
   "icons": [
-    { "src": "/dcsteam/dcs-app-icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+    { "src": "/dcsteam/dcs-app-icon.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/dcsteam/dcs-app-icon.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
   ]
 }

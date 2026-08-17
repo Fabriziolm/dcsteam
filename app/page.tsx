@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  ArrowRight,
   Bell,
   Buildings,
   CalendarCheck,
@@ -19,6 +20,7 @@ import {
   MapPin,
   MagnifyingGlass,
   Receipt,
+  Question,
   ShieldCheck,
   SignOut,
   SteeringWheel,
@@ -27,6 +29,7 @@ import {
   UserCircle,
   Users,
   WarningCircle,
+  X,
 } from "@phosphor-icons/react";
 import type { Session } from "@supabase/supabase-js";
 import { useEffect, useState } from "react";
@@ -308,10 +311,12 @@ function Header({
   role,
   email,
   onNavigate,
+  onShowGuide,
 }: {
   role: Role;
   email: string;
   onNavigate: (view: string) => void;
+  onShowGuide: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [notices, setNotices] = useState({
@@ -449,6 +454,7 @@ function Header({
       </div>
       <div className="header-actions">
         <GlobalSearch role={role} onNavigate={onNavigate} />
+        <button className="icon-button guide-help-button" onClick={onShowGuide} aria-label="Abrir guía de uso" title="Guía de uso"><Question size={21}/></button>
         <PwaInstall />
         <div className="notification-wrap">
           <button
@@ -881,11 +887,42 @@ function roleFromSession(session: Session): Role {
   return roles.includes(requested as Role) ? (requested as Role) : "Chofer";
 }
 
+type GuideStep={view:string;title:string;description:string};
+const adminGuide:GuideStep[]=[
+  {view:"Resumen",title:"Resumen",description:"Consulta indicadores en tiempo real, alertas y genera reportes gerenciales en CSV o PDF."},
+  {view:"Operaciones",title:"Operaciones",description:"Programa servicios, asigna personal y unidades, y controla el estado de cada recorrido."},
+  {view:"GPS en vivo",title:"GPS en vivo",description:"Revisa la ubicación enviada por Inkacel y abre el mapa completo cuando necesites más detalle."},
+  {view:"Clientes",title:"Clientes",description:"Registra datos comerciales, fiscales y contactos usados en servicios y facturación."},
+  {view:"Facturación",title:"Facturación",description:"Convierte servicios cerrados en facturas y controla importes cobrados o pendientes."},
+  {view:"Caja y gastos",title:"Caja y gastos",description:"Revisa comprobantes, aprueba o rechaza gastos y descarga la carpeta semanal."},
+  {view:"Flota",title:"Flota",description:"Administra placas, kilometraje, combustible y disponibilidad de las unidades."},
+  {view:"Marcaciones",title:"Marcaciones",description:"Audita entradas, salidas, ubicación, fotos y solicitudes de corrección del personal."},
+  {view:"Equipo",title:"Equipo",description:"Aprueba usuarios, asigna cargos y unidades, y administra quién puede ingresar a la app."},
+];
+const workerGuide:GuideStep[]=[
+  {view:"Mi ruta",title:"Mi ruta",description:"Inicia o cierra tu jornada con ubicación y foto, consulta servicios y registra avances."},
+  {view:"Gastos",title:"Gastos",description:"Registra combustible, peajes u otros gastos con cliente, unidad y foto del comprobante."},
+  {view:"Mis horas",title:"Mis horas",description:"Consulta tus jornadas, horas registradas y estado de cada marcación."},
+  {view:"Incidencias",title:"Incidencias",description:"Reporta problemas del servicio o la unidad para que administración pueda atenderlos."},
+];
+
+function OnboardingGuide({role,onNavigate,onFinish}:{role:Role;onNavigate:(view:string)=>void;onFinish:()=>void}){
+  const steps=role==="Administrador"?adminGuide:workerGuide;
+  const [index,setIndex]=useState(0);
+  const step=steps[index];
+  useEffect(()=>{onNavigate(step.view)},[step.view,onNavigate]);
+  return <div className="guide-backdrop"><section className="guide-card" role="dialog" aria-modal="true" aria-labelledby="guide-title"><button className="guide-close" onClick={onFinish} aria-label="Omitir guía"><X size={19}/></button><div className="guide-progress"><span style={{width:`${((index+1)/steps.length)*100}%`}}/></div><small>PASO {index+1} DE {steps.length} · {role.toUpperCase()}</small><i><Question size={30} weight="duotone"/></i><h2 id="guide-title">{step.title}</h2><p>{step.description}</p><div className="guide-actions"><button onClick={onFinish}>Omitir</button>{index>0&&<button onClick={()=>setIndex(current=>current-1)}>Anterior</button>}<button className="primary" onClick={()=>index===steps.length-1?onFinish():setIndex(current=>current+1)}>{index===steps.length-1?"Comenzar":"Siguiente"}<ArrowRight size={17}/></button></div></section></div>;
+}
+
 function Dashboard({ session }: { session: Session }) {
   const role = roleFromSession(session);
   const owner = role === "Administrador";
   const operationsManager = owner;
   const [view, setView] = useState(owner ? "Resumen" : "Mi ruta");
+  const [showGuide,setShowGuide]=useState(false);
+  const guideKey=`dcs_guide_v1_${session.user.id}_${role}`;
+  useEffect(()=>{setShowGuide(localStorage.getItem(guideKey)!=="completed")},[guideKey]);
+  const finishGuide=()=>{localStorage.setItem(guideKey,"completed");setShowGuide(false)};
   const signOut = () => {
     void supabase?.auth.signOut();
   };
@@ -929,9 +966,11 @@ function Dashboard({ session }: { session: Session }) {
           role={role}
           email={session.user.email ?? "Usuario DCS"}
           onNavigate={setView}
+          onShowGuide={()=>setShowGuide(true)}
         />
         {content}
       </div>
+      {showGuide&&<OnboardingGuide role={role} onNavigate={setView} onFinish={finishGuide}/>}
     </div>
   );
 }

@@ -6,7 +6,7 @@ export const metadata: Metadata = {
   description: "Plataforma de gestión operativa y gerencial de DCS",
   manifest: "/dcsteam/manifest.webmanifest",
   appleWebApp: { capable: true, title: "DCS", statusBarStyle: "default" },
-  icons: { icon: "/dcsteam/dcs-app-icon.svg", apple: "/dcsteam/dcs-app-icon.svg" },
+  icons: { icon: "/dcsteam/dcs-app-icon.png", apple: "/dcsteam/dcs-app-icon.png" },
 };
 
 export const viewport: Viewport = {
