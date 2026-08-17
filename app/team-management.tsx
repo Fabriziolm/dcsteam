@@ -5,7 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
 
 type StaffProfile = { id: string; email: string | null; full_name: string | null; active: boolean; role: string; created_at: string };
-const assignableRoles = ["Administrador", "Coordinador", "Chofer", "Auxiliar"];
+const assignableRoles = ["Administrador", "Chofer", "Auxiliar"];
 
 export function TeamManagement() {
   const [profiles, setProfiles] = useState<StaffProfile[]>([]);

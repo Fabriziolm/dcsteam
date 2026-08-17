@@ -41,9 +41,9 @@ import { GpsLive } from "./gps-live";
 import { PwaInstall } from "./pwa-install";
 import { isSupabaseConfigured, supabase } from "../lib/supabase";
 
-type Role = "Propietario" | "Administrador" | "Coordinador" | "Chofer" | "Auxiliar";
+type Role = "Administrador" | "Chofer" | "Auxiliar";
 
-const roles: Role[] = ["Propietario", "Administrador", "Coordinador", "Chofer", "Auxiliar"];
+const roles: Role[] = ["Administrador", "Chofer", "Auxiliar"];
 
 const weekly = [34, 52, 44, 66, 58, 75, 69, 84, 72, 91, 86, 96];
 const clients = [
@@ -70,13 +70,11 @@ function Brand() {
 }
 
 function Sidebar({ role, view, setView, onSignOut }: { role: Role; view: string; setView: (v: string) => void; onSignOut: () => void }) {
-  const owner = role === "Propietario" || role === "Administrador";
+  const owner = role === "Administrador";
   const items = owner
     ? [["Resumen", House], ["Operaciones", SteeringWheel], ["GPS en vivo", MapPin], ["Clientes", Buildings], ["Facturación", Receipt], ["Caja y gastos", CurrencyDollar], ["Flota", Car], ["Equipo", Users]]
     : [["Mi jornada", House], ["Servicios", CalendarCheck], ["Registrar gasto", Receipt], ["Mis horas", Clock], ["Incidencias", WarningCircle]];
-  const visibleItems = role === "Coordinador"
-    ? [["Operaciones", SteeringWheel], ["GPS en vivo", MapPin], ["Servicios", CalendarCheck], ["Equipo", Users], ["Incidencias", WarningCircle]]
-    : items;
+  const visibleItems = items;
   return (
     <aside className="sidebar">
       <Brand />
@@ -98,19 +96,19 @@ function Sidebar({ role, view, setView, onSignOut }: { role: Role; view: string;
 }
 
 const searchEntries = [
-  { label: "Resumen", keywords: "dashboard indicadores reporte gerencial", roles: ["Propietario", "Administrador"] },
-  { label: "Operaciones", keywords: "servicios rutas transportes agenda", roles: ["Propietario", "Administrador", "Coordinador"] },
-  { label: "GPS en vivo", keywords: "mapa unidades ubicación vehículos inkacel", roles: ["Propietario", "Administrador", "Coordinador"] },
-  { label: "Clientes", keywords: "empresas ruc contactos", roles: ["Propietario", "Administrador"] },
-  { label: "Facturación", keywords: "facturas importes cobros ingresos cliente", roles: ["Propietario", "Administrador"] },
-  { label: "Caja y gastos", keywords: "egresos gasolina combustible peaje estacionamiento", roles: ["Propietario", "Administrador"] },
-  { label: "Flota", keywords: "van unidades kilometraje vehículos mantenimiento", roles: ["Propietario", "Administrador"] },
-  { label: "Equipo", keywords: "trabajadores usuarios chofer auxiliar coordinador horas", roles: ["Propietario", "Administrador", "Coordinador"] },
+  { label: "Resumen", keywords: "dashboard indicadores reporte gerencial", roles: ["Administrador"] },
+  { label: "Operaciones", keywords: "servicios rutas transportes agenda", roles: ["Administrador"] },
+  { label: "GPS en vivo", keywords: "mapa unidades ubicación vehículos inkacel", roles: ["Administrador"] },
+  { label: "Clientes", keywords: "empresas ruc contactos", roles: ["Administrador"] },
+  { label: "Facturación", keywords: "facturas importes cobros ingresos cliente", roles: ["Administrador"] },
+  { label: "Caja y gastos", keywords: "egresos gasolina combustible peaje estacionamiento", roles: ["Administrador"] },
+  { label: "Flota", keywords: "van unidades kilometraje vehículos mantenimiento", roles: ["Administrador"] },
+  { label: "Equipo", keywords: "trabajadores usuarios chofer auxiliar horas", roles: ["Administrador"] },
   { label: "Mi jornada", keywords: "turno asistencia inicio trabajo", roles: ["Chofer", "Auxiliar"] },
-  { label: "Servicios", keywords: "asignados agenda rutas clientes", roles: ["Coordinador", "Chofer", "Auxiliar"] },
+  { label: "Servicios", keywords: "asignados agenda rutas clientes", roles: ["Chofer", "Auxiliar"] },
   { label: "Registrar gasto", keywords: "gasolina combustible peaje estacionamiento comprobante", roles: ["Chofer", "Auxiliar"] },
   { label: "Mis horas", keywords: "horario asistencia semana trabajador", roles: ["Chofer", "Auxiliar"] },
-  { label: "Incidencias", keywords: "hallazgos alertas problemas observaciones", roles: ["Coordinador", "Chofer", "Auxiliar"] },
+  { label: "Incidencias", keywords: "hallazgos alertas problemas observaciones", roles: ["Chofer", "Auxiliar"] },
 ] as const;
 
 function GlobalSearch({ role, onNavigate }: { role: Role; onNavigate: (view: string) => void }) {
@@ -143,7 +141,7 @@ function Header({ role, email, onNavigate }: { role: Role; email: string; onNavi
   const todayLabel = new Intl.DateTimeFormat("es-PE", { weekday: "long", day: "numeric", month: "long", year: "numeric" }).format(new Date()).toLocaleUpperCase("es-PE");
   return (
     <header className="topbar">
-      <div><span className="eyebrow">{todayLabel}</span><h1>{role === "Propietario" ? "Resumen ejecutivo" : role === "Administrador" ? "Panel administrativo" : `Portal de ${role.toLowerCase()}`}</h1></div>
+      <div><span className="eyebrow">{todayLabel}</span><h1>{role === "Administrador" ? "Panel administrativo" : `Portal de ${role.toLowerCase()}`}</h1></div>
       <div className="header-actions">
         <GlobalSearch role={role} onNavigate={onNavigate} />
         <PwaInstall />
@@ -221,14 +219,12 @@ function roleFromSession(session: Session): Role {
 
 function Dashboard({ session }: { session: Session }) {
   const role = roleFromSession(session);
-  const owner = role === "Propietario" || role === "Administrador";
-  const operationsManager = owner || role === "Coordinador";
-  const [view, setView] = useState(owner ? "Resumen" : role === "Coordinador" ? "Operaciones" : "Mi jornada");
+  const owner = role === "Administrador";
+  const operationsManager = owner;
+  const [view, setView] = useState(owner ? "Resumen" : "Mi jornada");
   const signOut = () => { void supabase?.auth.signOut(); };
   const content = owner && view === "Equipo" ? <TeamManagement />
     : operationsManager && view === "Operaciones" ? <ServicesManagement />
-    : role === "Coordinador" && view === "Servicios" ? <ServicesManagement />
-    : role === "Coordinador" && view === "Equipo" ? <TeamDirectory />
     : operationsManager && view === "GPS en vivo" ? <GpsLive />
     : view === "Incidencias" ? <FindingsManagement canManage={operationsManager} />
     : !operationsManager && view === "Mis horas" ? <HoursManagement />
@@ -238,7 +234,7 @@ function Dashboard({ session }: { session: Session }) {
     : owner && view === "Caja y gastos" ? <ExpensesManagement />
     : owner && view === "Flota" ? <FleetManagement />
     : owner ? <LiveOwnerDashboard />
-    : <OperativePortal role={role as "Coordinador" | "Chofer" | "Auxiliar"} session={session} />;
+    : <OperativePortal role={role as "Chofer" | "Auxiliar"} session={session} />;
   return <div className="app-shell"><Sidebar role={role} view={view} setView={setView} onSignOut={signOut} /><div className="main-area"><Header role={role} email={session.user.email ?? "Usuario DCS"} onNavigate={setView} />{content}</div></div>;
 }
 
