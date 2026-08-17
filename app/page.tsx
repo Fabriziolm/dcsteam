@@ -36,6 +36,7 @@ import { OperativePortal } from "./operative-portal";
 import { BillingManagement, ClientsManagement, ExpensesManagement, FleetManagement } from "./admin-modules";
 import { LiveOwnerDashboard } from "./owner-dashboard";
 import { FindingsManagement, HoursManagement, TeamDirectory } from "./workforce-modules";
+import { GpsLive } from "./gps-live";
 import { isSupabaseConfigured, supabase } from "../lib/supabase";
 
 type Role = "Propietario" | "Administrador" | "Coordinador" | "Chofer" | "Auxiliar";
@@ -69,10 +70,10 @@ function Brand() {
 function Sidebar({ role, view, setView, onSignOut }: { role: Role; view: string; setView: (v: string) => void; onSignOut: () => void }) {
   const owner = role === "Propietario" || role === "Administrador";
   const items = owner
-    ? [["Resumen", House], ["Operaciones", SteeringWheel], ["Clientes", Buildings], ["Facturación", Receipt], ["Caja y gastos", CurrencyDollar], ["Flota", Car], ["Equipo", Users]]
+    ? [["Resumen", House], ["Operaciones", SteeringWheel], ["GPS en vivo", MapPin], ["Clientes", Buildings], ["Facturación", Receipt], ["Caja y gastos", CurrencyDollar], ["Flota", Car], ["Equipo", Users]]
     : [["Mi jornada", House], ["Servicios", CalendarCheck], ["Registrar gasto", Receipt], ["Mis horas", Clock], ["Incidencias", WarningCircle]];
   const visibleItems = role === "Coordinador"
-    ? [["Operaciones", SteeringWheel], ["Servicios", CalendarCheck], ["Equipo", Users], ["Incidencias", WarningCircle]]
+    ? [["Operaciones", SteeringWheel], ["GPS en vivo", MapPin], ["Servicios", CalendarCheck], ["Equipo", Users], ["Incidencias", WarningCircle]]
     : items;
   return (
     <aside className="sidebar">
@@ -192,6 +193,7 @@ function Dashboard({ session }: { session: Session }) {
     : operationsManager && view === "Operaciones" ? <ServicesManagement />
     : role === "Coordinador" && view === "Servicios" ? <ServicesManagement />
     : role === "Coordinador" && view === "Equipo" ? <TeamDirectory />
+    : operationsManager && view === "GPS en vivo" ? <GpsLive />
     : view === "Incidencias" ? <FindingsManagement canManage={operationsManager} />
     : !operationsManager && view === "Mis horas" ? <HoursManagement />
     : !operationsManager && view === "Registrar gasto" ? <OperativePortal role={role as "Chofer" | "Auxiliar"} session={session} initialAction="expense" />
