@@ -54,6 +54,14 @@ type Expense = {
   vehicles: { name: string; plate: string } | null;
   clients: { name: string } | null;
 };
+type CashMovement = {
+  id: string;
+  movement_date: string;
+  movement_type: "Ingreso" | "Egreso";
+  concept: string;
+  amount: number;
+  updated_at: string;
+};
 
 function Notice({ error, message }: { error: string; message: string }) {
   return (
@@ -378,6 +386,7 @@ function DataTable({
 
 export function ExpensesManagement() {
   const [rows, setRows] = useState<Expense[]>([]),
+    [cashRows, setCashRows] = useState<CashMovement[]>([]),
     [loading, setLoading] = useState(true),
     [downloading, setDownloading] = useState(false),
     [reviewingId, setReviewingId] = useState(""),
@@ -386,16 +395,12 @@ export function ExpensesManagement() {
   const load = useCallback(async () => {
     if (!supabase) return;
     setLoading(true);
-    const r = await supabase
-      .from("expenses")
-      .select(
-        "id,expense_date,category,concept,amount,status,receipt_url,vehicles(name,plate),clients(name)",
-      )
-      .eq("source_system", "dcs_app")
-      .order("expense_date", { ascending: false })
-      .limit(150);
-    if (r.error) setError(r.error.message);
-    else setRows((r.data || []) as unknown as Expense[]);
+    const [r,cash] = await Promise.all([
+      supabase.from("expenses").select("id,expense_date,category,concept,amount,status,receipt_url,vehicles(name,plate),clients(name)").eq("source_system", "dcs_app").order("expense_date", { ascending: false }).limit(150),
+      supabase.from("cash_movements").select("id,movement_date,movement_type,concept,amount,updated_at").order("movement_date", { ascending: false }).limit(500),
+    ]);
+    if (r.error || cash.error) setError(r.error?.message || cash.error?.message || "No se pudo cargar caja.");
+    else { setRows((r.data || []) as unknown as Expense[]); setCashRows((cash.data || []) as CashMovement[]); }
     setLoading(false);
   }, []);
   useEffect(() => {
@@ -404,6 +409,7 @@ export function ExpensesManagement() {
     const client = supabase;
     const channel = client.channel("expenses-management-live")
       .on("postgres_changes", { event: "*", schema: "public", table: "expenses" }, () => void load())
+      .on("postgres_changes", { event: "*", schema: "public", table: "cash_movements" }, () => void load())
       .subscribe();
     return () => { void client.removeChannel(channel); };
   }, [load]);
@@ -517,6 +523,9 @@ export function ExpensesManagement() {
   const total = rows
     .filter((r) => r.status !== "Rechazado")
     .reduce((n, r) => n + Number(r.amount), 0);
+  const sheetIncome=cashRows.filter(row=>row.movement_type==="Ingreso").reduce((sum,row)=>sum+Number(row.amount),0);
+  const sheetExpense=cashRows.filter(row=>row.movement_type==="Egreso").reduce((sum,row)=>sum+Number(row.amount),0);
+  const sheetBalance=sheetIncome-sheetExpense;
   const weekStart = new Date();
   weekStart.setHours(0, 0, 0, 0);
   weekStart.setDate(weekStart.getDate() - ((weekStart.getDay() + 6) % 7));
@@ -565,6 +574,12 @@ export function ExpensesManagement() {
         </button>
       </section>
       <Notice error={error} message={message} />
+      <section className="metrics-grid compact">
+        <article className="metric green"><span>Ingresos del Sheet</span><strong>S/ {sheetIncome.toLocaleString("es-PE",{minimumFractionDigits:2})}</strong></article>
+        <article className="metric amber"><span>Egresos del Sheet</span><strong>S/ {sheetExpense.toLocaleString("es-PE",{minimumFractionDigits:2})}</strong></article>
+        <article className="metric blue"><span>Saldo calculado</span><strong>S/ {sheetBalance.toLocaleString("es-PE",{minimumFractionDigits:2})}</strong></article>
+      </section>
+      <section className="panel data-panel"><div className="panel-title"><div><span>FUENTE: GOOGLE SHEETS</span><h3>Entradas y salidas sincronizadas</h3></div><b className="status green-status">Solo lectura</b></div><div className="table-scroll"><table className="data-table"><thead><tr><th>Fecha</th><th>Movimiento</th><th>Concepto</th><th>Importe</th></tr></thead><tbody>{cashRows.slice(0,150).map(row=><tr key={row.id}><td>{row.movement_date}</td><td><b className={`status ${row.movement_type==="Ingreso"?"green-status":"amber-status"}`}>{row.movement_type}</b></td><td>{row.concept}</td><td>S/ {Number(row.amount).toFixed(2)}</td></tr>)}</tbody></table></div></section>
       <section className="metrics-grid compact">
         <article className="metric blue">
           <span>Total registrado en la app</span>

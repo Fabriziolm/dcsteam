@@ -1,2 +1,5 @@
 [functions.sheets-sync]
 verify_jwt = false
+
+[functions.bright-endpoint]
+verify_jwt = false
