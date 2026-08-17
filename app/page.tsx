@@ -952,7 +952,7 @@ function Dashboard({ session }: { session: Session }) {
     ) : view === "Incidencias" ? (
       <FindingsManagement canManage={operationsManager} />
     ) : !operationsManager && view === "Mis horas" ? (
-      <HoursManagement />
+      <HoursManagement role={role as "Chofer" | "Auxiliar"} />
     ) : !operationsManager && view === "Gastos" ? (
       <OperativePortal
         role={role as "Chofer" | "Auxiliar"}

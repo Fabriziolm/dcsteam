@@ -33,6 +33,7 @@ type Entry = {
   status: string;
   notes: string | null;
 };
+type Holiday = { holiday_date:string; name:string; credited_hours:number };
 type Profile = {
   id: string;
   full_name: string | null;
@@ -248,20 +249,19 @@ export function FindingsManagement({
   );
 }
 
-export function HoursManagement() {
+export function HoursManagement({role}:{role:"Chofer"|"Auxiliar"}) {
   const [rows, setRows] = useState<Entry[]>([]),
+    [holidays,setHolidays]=useState<Holiday[]>([]),
     [loading, setLoading] = useState(true),
     [error, setError] = useState("");
   useEffect(() => {
     if (!supabase) return;
-    void supabase
-      .from("time_entries")
-      .select("id,work_date,clock_in,clock_out,break_minutes,status,notes")
-      .order("work_date", { ascending: false })
-      .limit(100)
-      .then((r) => {
-        if (r.error) setError(r.error.message);
-        else setRows((r.data || []) as Entry[]);
+    void Promise.all([
+      supabase.from("time_entries").select("id,work_date,clock_in,clock_out,break_minutes,status,notes").order("work_date", { ascending: false }).limit(100),
+      supabase.from("holidays").select("holiday_date,name,credited_hours").eq("active",true),
+    ]).then(([r,h]) => {
+        if (r.error||h.error) setError(r.error?.message||h.error?.message||"No se pudo calcular la semana.");
+        else {setRows((r.data || []) as Entry[]);setHolidays((h.data||[]) as Holiday[]);}
         setLoading(false);
       });
   }, []);
@@ -283,6 +283,19 @@ export function HoursManagement() {
       ),
     [rows],
   );
+  const weekly=useMemo(()=>{
+    const today=new Date(),monday=new Date(today);monday.setHours(0,0,0,0);monday.setDate(today.getDate()-((today.getDay()+6)%7));
+    const sunday=new Date(monday);sunday.setDate(monday.getDate()+6);
+    const start=monday.toISOString().slice(0,10),end=sunday.toISOString().slice(0,10),rate=role==="Chofer"?10.41:6.77;
+    const current=rows.filter(row=>row.work_date>=start&&row.work_date<=end&&row.clock_in&&row.clock_out);
+    let ordinaryMinutes=0,firstExtraMinutes=0,remainingExtraMinutes=0;
+    current.forEach(row=>{const worked=Math.max(0,(new Date(row.clock_out!).getTime()-new Date(row.clock_in!).getTime())/60000-row.break_minutes);ordinaryMinutes+=Math.min(480,worked);const extra=Math.max(0,worked-480);firstExtraMinutes+=Math.min(120,extra);remainingExtraMinutes+=Math.max(0,extra-120)});
+    const workedDates=new Set(current.map(row=>row.work_date));
+    const credited=holidays.filter(day=>day.holiday_date>=start&&day.holiday_date<=end&&!workedDates.has(day.holiday_date));
+    const holidayMinutes=credited.reduce((sum,day)=>sum+Number(day.credited_hours)*60,0);
+    const ordinaryPay=((ordinaryMinutes+holidayMinutes)/60)*rate,extraPay=(firstExtraMinutes/60)*rate*1.25+(remainingExtraMinutes/60)*rate*1.35;
+    return {start,end,rate,ordinaryMinutes,firstExtraMinutes,remainingExtraMinutes,holidayMinutes,credited,ordinaryPay,extraPay,totalPay:ordinaryPay+extraPay};
+  },[rows,holidays,role]);
   return (
     <main className="content">
       <section className="welcome">
@@ -315,6 +328,22 @@ export function HoursManagement() {
             }
           </strong>
         </article>
+        <article className="metric amber">
+          <span>Horas extra esta semana</span>
+          <strong>{((weekly.firstExtraMinutes+weekly.remainingExtraMinutes)/60).toFixed(1)} h</strong>
+          <small>Estimado: S/ {weekly.extraPay.toFixed(2)}</small>
+        </article>
+        <article className="metric purple">
+          <span>Generado esta semana</span>
+          <strong>S/ {weekly.totalPay.toFixed(2)}</strong>
+          <small>Tarifa referencial: S/ {weekly.rate.toFixed(2)} por hora</small>
+        </article>
+      </section>
+      <section className="panel weekly-pay-detail">
+        <div className="panel-title"><div><span>ESTIMACIÓN SEMANAL</span><h3>{weekly.start} al {weekly.end}</h3></div><b className="status blue-status">Referencial</b></div>
+        <div className="report-summary"><div><span>Horas ordinarias</span><strong>{(weekly.ordinaryMinutes/60).toFixed(1)} h</strong></div><div><span>Feriados reconocidos</span><strong>{(weekly.holidayMinutes/60).toFixed(1)} h</strong></div><div><span>Pago ordinario estimado</span><strong>S/ {weekly.ordinaryPay.toFixed(2)}</strong></div></div>
+        {weekly.credited.length>0&&<p className="report-description">Feriado considerado: {weekly.credited.map(day=>`${day.name} (${Number(day.credited_hours)} h)`).join(", ")}.</p>}
+        <p className="report-description">Las primeras dos horas extra de cada día se estiman con 25% adicional y las siguientes con 35%. El resultado es informativo y queda sujeto a aprobación administrativa.</p>
       </section>
       <section className="panel data-panel">
         {loading ? (
