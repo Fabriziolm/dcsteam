@@ -129,14 +129,34 @@ function GlobalSearch({ role, onNavigate }: { role: Role; onNavigate: (view: str
 
 function Header({ role, email, onNavigate }: { role: Role; email: string; onNavigate: (view: string) => void }) {
   const [open, setOpen] = useState(false);
-  const [notices, setNotices] = useState({ findings: 0, expenses: 0 });
+  const [notices, setNotices] = useState({ findings: 0, expenses: 0, voucherCount: 0, voucherTotal: 0, weeklyTotal: 0 });
   useEffect(() => {
     if (!supabase) return;
-    void Promise.all([
-      supabase.from("findings").select("id", { count: "exact", head: true }).in("status", ["Abierto", "En revisión"]),
-      supabase.from("expenses").select("id", { count: "exact", head: true }).eq("status", "Pendiente"),
-    ]).then(([a, b]) => setNotices({ findings: a.count ?? 0, expenses: b.count ?? 0 }));
-  }, []);
+    const client = supabase;
+    const weekStart = new Date();
+    weekStart.setHours(0, 0, 0, 0);
+    weekStart.setDate(weekStart.getDate() - ((weekStart.getDay() + 6) % 7));
+    const weekDate = weekStart.toISOString().slice(0, 10);
+    const loadNotices = async () => {
+      const [findingResult, expenseResult, dailyResult, weeklyResult] = await Promise.all([
+        client.from("findings").select("id", { count: "exact", head: true }).in("status", ["Abierto", "En revisión"]),
+        client.from("expenses").select("id,amount,receipt_url").eq("source_system", "dcs_app").eq("status", "Pendiente"),
+        client.from("expenses").select("amount").eq("source_system", "dcs_app").not("receipt_url", "is", null).neq("status", "Rechazado").eq("expense_date", new Date().toISOString().slice(0,10)),
+        client.from("expenses").select("amount").eq("source_system", "dcs_app").not("receipt_url", "is", null).neq("status", "Rechazado").gte("expense_date", weekDate),
+      ]);
+      setNotices({
+        findings: findingResult.count ?? 0,
+        expenses: expenseResult.data?.length ?? 0,
+        voucherCount: dailyResult.data?.length ?? 0,
+        voucherTotal: dailyResult.data?.reduce((sum, expense) => sum + Number(expense.amount), 0) ?? 0,
+        weeklyTotal: weeklyResult.data?.reduce((sum, expense) => sum + Number(expense.amount), 0) ?? 0,
+      });
+    };
+    void loadNotices();
+    if (role !== "Administrador") return;
+    const channel = client.channel("admin-expense-alerts").on("postgres_changes", { event: "*", schema: "public", table: "expenses" }, () => void loadNotices()).subscribe();
+    return () => { void client.removeChannel(channel); };
+  }, [role]);
   const total = notices.findings + notices.expenses;
   const todayLabel = new Intl.DateTimeFormat("es-PE", { weekday: "long", day: "numeric", month: "long", year: "numeric" }).format(new Date()).toLocaleUpperCase("es-PE");
   return (
@@ -145,7 +165,7 @@ function Header({ role, email, onNavigate }: { role: Role; email: string; onNavi
       <div className="header-actions">
         <GlobalSearch role={role} onNavigate={onNavigate} />
         <PwaInstall />
-        <div className="notification-wrap"><button className="icon-button" onClick={() => setOpen(!open)} aria-label="Notificaciones"><Bell size={21} />{total > 0 && <i>{total}</i>}</button>{open && <div className="notification-menu"><strong>Notificaciones</strong><div><WarningCircle size={18}/><span><b>{notices.findings} incidencias</b> abiertas o en revisión</span></div><div><Receipt size={18}/><span><b>{notices.expenses} gastos</b> pendientes de revisión</span></div>{total === 0 && <small>Todo está al día.</small>}</div>}</div>
+        <div className="notification-wrap"><button className="icon-button" onClick={() => setOpen(!open)} aria-label="Notificaciones"><Bell size={21} />{total > 0 && <i>{total}</i>}</button>{open && <div className="notification-menu"><strong>Notificaciones</strong>{role==="Administrador"&&<div className="voucher-alert"><Receipt size={18}/><span><b>Resumen 5:00 p. m.: {notices.voucherCount} vouchers · S/ {notices.voucherTotal.toFixed(2)}</b><small>Acumulado semanal: S/ {notices.weeklyTotal.toFixed(2)}</small><button onClick={()=>{onNavigate("Caja y gastos");setOpen(false)}}>Revisar comprobantes</button></span></div>}<div><WarningCircle size={18}/><span><b>{notices.findings} incidencias</b> abiertas o en revisión</span></div><div><Receipt size={18}/><span><b>{notices.expenses} gastos</b> pendientes de revisión</span></div>{total === 0 && <small>Todo está al día.</small>}</div>}</div>
         <div className="role-picker"><UserCircle size={26} weight="duotone" /><div><span>{email}</span><strong>{role}</strong></div></div>
       </div>
     </header>
