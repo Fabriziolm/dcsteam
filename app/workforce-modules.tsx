@@ -288,13 +288,13 @@ export function HoursManagement({role}:{role:"Chofer"|"Auxiliar"}) {
     const sunday=new Date(monday);sunday.setDate(monday.getDate()+6);
     const start=monday.toISOString().slice(0,10),end=sunday.toISOString().slice(0,10),rate=role==="Chofer"?10.41:6.77;
     const current=rows.filter(row=>row.work_date>=start&&row.work_date<=end&&row.clock_in&&row.clock_out);
-    let ordinaryMinutes=0,firstExtraMinutes=0,remainingExtraMinutes=0;
-    current.forEach(row=>{const worked=Math.max(0,(new Date(row.clock_out!).getTime()-new Date(row.clock_in!).getTime())/60000-row.break_minutes);ordinaryMinutes+=Math.min(480,worked);const extra=Math.max(0,worked-480);firstExtraMinutes+=Math.min(120,extra);remainingExtraMinutes+=Math.max(0,extra-120)});
+    let ordinaryMinutes=0,extraMinutes=0,lunchDays=0;
+    current.forEach(row=>{const worked=Math.max(0,(new Date(row.clock_out!).getTime()-new Date(row.clock_in!).getTime())/60000-row.break_minutes);ordinaryMinutes+=Math.min(480,worked);extraMinutes+=Math.max(0,worked-480);if(worked>600)lunchDays++});
     const workedDates=new Set(current.map(row=>row.work_date));
     const credited=holidays.filter(day=>day.holiday_date>=start&&day.holiday_date<=end&&!workedDates.has(day.holiday_date));
     const holidayMinutes=credited.reduce((sum,day)=>sum+Number(day.credited_hours)*60,0);
-    const ordinaryPay=((ordinaryMinutes+holidayMinutes)/60)*rate,extraPay=(firstExtraMinutes/60)*rate*1.25+(remainingExtraMinutes/60)*rate*1.35;
-    return {start,end,rate,ordinaryMinutes,firstExtraMinutes,remainingExtraMinutes,holidayMinutes,credited,ordinaryPay,extraPay,totalPay:ordinaryPay+extraPay};
+    const ordinaryPay=((ordinaryMinutes+holidayMinutes)/60)*rate,extraPay=(extraMinutes/60)*rate,lunchPay=lunchDays*20;
+    return {start,end,rate,ordinaryMinutes,extraMinutes,holidayMinutes,credited,ordinaryPay,extraPay,lunchDays,lunchPay,totalPay:ordinaryPay+extraPay+lunchPay};
   },[rows,holidays,role]);
   return (
     <main className="content">
@@ -330,7 +330,7 @@ export function HoursManagement({role}:{role:"Chofer"|"Auxiliar"}) {
         </article>
         <article className="metric amber">
           <span>Horas extra esta semana</span>
-          <strong>{((weekly.firstExtraMinutes+weekly.remainingExtraMinutes)/60).toFixed(1)} h</strong>
+          <strong>{(weekly.extraMinutes/60).toFixed(1)} h</strong>
           <small>Estimado: S/ {weekly.extraPay.toFixed(2)}</small>
         </article>
         <article className="metric purple">
@@ -341,9 +341,9 @@ export function HoursManagement({role}:{role:"Chofer"|"Auxiliar"}) {
       </section>
       <section className="panel weekly-pay-detail">
         <div className="panel-title"><div><span>ESTIMACIÓN SEMANAL</span><h3>{weekly.start} al {weekly.end}</h3></div><b className="status blue-status">Referencial</b></div>
-        <div className="report-summary"><div><span>Horas ordinarias</span><strong>{(weekly.ordinaryMinutes/60).toFixed(1)} h</strong></div><div><span>Feriados reconocidos</span><strong>{(weekly.holidayMinutes/60).toFixed(1)} h</strong></div><div><span>Pago ordinario estimado</span><strong>S/ {weekly.ordinaryPay.toFixed(2)}</strong></div></div>
+        <div className="report-summary"><div><span>Horas ordinarias</span><strong>{(weekly.ordinaryMinutes/60).toFixed(1)} h</strong></div><div><span>Feriados reconocidos</span><strong>{(weekly.holidayMinutes/60).toFixed(1)} h</strong></div><div><span>Almuerzos reconocidos</span><strong>{weekly.lunchDays} · S/ {weekly.lunchPay.toFixed(2)}</strong></div></div>
         {weekly.credited.length>0&&<p className="report-description">Feriado considerado: {weekly.credited.map(day=>`${day.name} (${Number(day.credited_hours)} h)`).join(", ")}.</p>}
-        <p className="report-description">Las primeras dos horas extra de cada día se estiman con 25% adicional y las siguientes con 35%. El resultado es informativo y queda sujeto a aprobación administrativa.</p>
+        <p className="report-description">Después de 8 horas, las horas extra conservan la tarifa normal del rol. Si una jornada supera las 10 horas, se reconocen S/ 20 de almuerzo por ese día. El resultado es informativo y queda sujeto a aprobación administrativa.</p>
       </section>
       <section className="panel data-panel">
         {loading ? (
