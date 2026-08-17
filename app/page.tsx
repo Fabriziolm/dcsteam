@@ -52,6 +52,7 @@ import {
 } from "./workforce-modules";
 import { GpsLive } from "./gps-live";
 import { PwaInstall } from "./pwa-install";
+import { FuelReport } from "./fuel-report";
 import { isSupabaseConfigured, supabase } from "../lib/supabase";
 
 type Role = "Administrador" | "Chofer" | "Auxiliar";
@@ -967,7 +968,7 @@ function Dashboard({ session }: { session: Session }) {
     ) : owner && view === "Flota" ? (
       <FleetManagement />
     ) : owner ? (
-      <LiveOwnerDashboard />
+    <><LiveOwnerDashboard /><FuelReport /></>
     ) : (
       <OperativePortal role={role as "Chofer" | "Auxiliar"} session={session} />
     );
