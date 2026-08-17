@@ -17,6 +17,7 @@ import {
   LinkedinLogo,
   ListChecks,
   MapPin,
+  MagnifyingGlass,
   Receipt,
   ShieldCheck,
   SignOut,
@@ -96,7 +97,39 @@ function Sidebar({ role, view, setView, onSignOut }: { role: Role; view: string;
   );
 }
 
-function Header({ role, email }: { role: Role; email: string }) {
+const searchEntries = [
+  { label: "Resumen", keywords: "dashboard indicadores reporte gerencial", roles: ["Propietario", "Administrador"] },
+  { label: "Operaciones", keywords: "servicios rutas transportes agenda", roles: ["Propietario", "Administrador", "Coordinador"] },
+  { label: "GPS en vivo", keywords: "mapa unidades ubicación vehículos inkacel", roles: ["Propietario", "Administrador", "Coordinador"] },
+  { label: "Clientes", keywords: "empresas ruc contactos", roles: ["Propietario", "Administrador"] },
+  { label: "Facturación", keywords: "facturas importes cobros ingresos cliente", roles: ["Propietario", "Administrador"] },
+  { label: "Caja y gastos", keywords: "egresos gasolina combustible peaje estacionamiento", roles: ["Propietario", "Administrador"] },
+  { label: "Flota", keywords: "van unidades kilometraje vehículos mantenimiento", roles: ["Propietario", "Administrador"] },
+  { label: "Equipo", keywords: "trabajadores usuarios chofer auxiliar coordinador horas", roles: ["Propietario", "Administrador", "Coordinador"] },
+  { label: "Mi jornada", keywords: "turno asistencia inicio trabajo", roles: ["Chofer", "Auxiliar"] },
+  { label: "Servicios", keywords: "asignados agenda rutas clientes", roles: ["Coordinador", "Chofer", "Auxiliar"] },
+  { label: "Registrar gasto", keywords: "gasolina combustible peaje estacionamiento comprobante", roles: ["Chofer", "Auxiliar"] },
+  { label: "Mis horas", keywords: "horario asistencia semana trabajador", roles: ["Chofer", "Auxiliar"] },
+  { label: "Incidencias", keywords: "hallazgos alertas problemas observaciones", roles: ["Coordinador", "Chofer", "Auxiliar"] },
+] as const;
+
+function GlobalSearch({ role, onNavigate }: { role: Role; onNavigate: (view: string) => void }) {
+  const [query, setQuery] = useState("");
+  const normalized = query.trim().toLocaleLowerCase("es-PE");
+  const results = searchEntries.filter(entry => entry.roles.some(item => item === role) && `${entry.label} ${entry.keywords}`.toLocaleLowerCase("es-PE").includes(normalized));
+  const choose = (label: string) => { onNavigate(label); setQuery(""); };
+  return (
+    <div className="global-search">
+      <MagnifyingGlass size={18} />
+      <input value={query} onChange={event => setQuery(event.target.value)} placeholder="Buscar módulos y herramientas..." aria-label="Buscar en DCS" />
+      {normalized && <div className="search-results">
+        {results.length ? results.map(entry => <button key={entry.label} onClick={() => choose(entry.label)}><MagnifyingGlass size={15} /><span><strong>{entry.label}</strong><small>{entry.keywords}</small></span></button>) : <p>No encontramos una herramienta con ese nombre.</p>}
+      </div>}
+    </div>
+  );
+}
+
+function Header({ role, email, onNavigate }: { role: Role; email: string; onNavigate: (view: string) => void }) {
   const [open, setOpen] = useState(false);
   const [notices, setNotices] = useState({ findings: 0, expenses: 0 });
   useEffect(() => {
@@ -112,6 +145,7 @@ function Header({ role, email }: { role: Role; email: string }) {
     <header className="topbar">
       <div><span className="eyebrow">{todayLabel}</span><h1>{role === "Propietario" ? "Resumen ejecutivo" : role === "Administrador" ? "Panel administrativo" : `Portal de ${role.toLowerCase()}`}</h1></div>
       <div className="header-actions">
+        <GlobalSearch role={role} onNavigate={onNavigate} />
         <PwaInstall />
         <div className="notification-wrap"><button className="icon-button" onClick={() => setOpen(!open)} aria-label="Notificaciones"><Bell size={21} />{total > 0 && <i>{total}</i>}</button>{open && <div className="notification-menu"><strong>Notificaciones</strong><div><WarningCircle size={18}/><span><b>{notices.findings} incidencias</b> abiertas o en revisión</span></div><div><Receipt size={18}/><span><b>{notices.expenses} gastos</b> pendientes de revisión</span></div>{total === 0 && <small>Todo está al día.</small>}</div>}</div>
         <div className="role-picker"><UserCircle size={26} weight="duotone" /><div><span>{email}</span><strong>{role}</strong></div></div>
@@ -205,7 +239,7 @@ function Dashboard({ session }: { session: Session }) {
     : owner && view === "Flota" ? <FleetManagement />
     : owner ? <LiveOwnerDashboard />
     : <OperativePortal role={role as "Coordinador" | "Chofer" | "Auxiliar"} session={session} />;
-  return <div className="app-shell"><Sidebar role={role} view={view} setView={setView} onSignOut={signOut} /><div className="main-area"><Header role={role} email={session.user.email ?? "Usuario DCS"} />{content}</div></div>;
+  return <div className="app-shell"><Sidebar role={role} view={view} setView={setView} onSignOut={signOut} /><div className="main-area"><Header role={role} email={session.user.email ?? "Usuario DCS"} onNavigate={setView} />{content}</div></div>;
 }
 
 export default function App() {
