@@ -312,11 +312,13 @@ function Header({
   email,
   onNavigate,
   onShowGuide,
+  onSignOut,
 }: {
   role: Role;
   email: string;
   onNavigate: (view: string) => void;
   onShowGuide: () => void;
+  onSignOut: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [notices, setNotices] = useState({
@@ -543,6 +545,14 @@ function Header({
             <strong>{role}</strong>
           </div>
         </div>
+        <button
+          className="icon-button topbar-signout"
+          onClick={onSignOut}
+          aria-label="Cerrar sesión"
+          title="Cerrar sesión"
+        >
+          <SignOut size={21} />
+        </button>
       </div>
     </header>
   );
@@ -924,6 +934,9 @@ function Dashboard({ session }: { session: Session }) {
   useEffect(()=>{setShowGuide(localStorage.getItem(guideKey)!=="completed")},[guideKey]);
   const finishGuide=()=>{localStorage.setItem(guideKey,"completed");setShowGuide(false)};
   const signOut = () => {
+    if (!window.confirm("¿Deseas cerrar tu sesión?")) return;
+    localStorage.removeItem("dcs_remember_session");
+    sessionStorage.removeItem("dcs_temporary_session");
     void supabase?.auth.signOut();
   };
   const content =
@@ -967,6 +980,7 @@ function Dashboard({ session }: { session: Session }) {
           email={session.user.email ?? "Usuario DCS"}
           onNavigate={setView}
           onShowGuide={()=>setShowGuide(true)}
+          onSignOut={signOut}
         />
         {content}
       </div>
