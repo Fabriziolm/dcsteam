@@ -37,6 +37,7 @@ import { BillingManagement, ClientsManagement, ExpensesManagement, FleetManageme
 import { LiveOwnerDashboard } from "./owner-dashboard";
 import { FindingsManagement, HoursManagement, TeamDirectory } from "./workforce-modules";
 import { GpsLive } from "./gps-live";
+import { PwaInstall } from "./pwa-install";
 import { isSupabaseConfigured, supabase } from "../lib/supabase";
 
 type Role = "Propietario" | "Administrador" | "Coordinador" | "Chofer" | "Auxiliar";
@@ -111,6 +112,7 @@ function Header({ role, email }: { role: Role; email: string }) {
     <header className="topbar">
       <div><span className="eyebrow">{todayLabel}</span><h1>{role === "Propietario" ? "Resumen ejecutivo" : role === "Administrador" ? "Panel administrativo" : `Portal de ${role.toLowerCase()}`}</h1></div>
       <div className="header-actions">
+        <PwaInstall />
         <div className="notification-wrap"><button className="icon-button" onClick={() => setOpen(!open)} aria-label="Notificaciones"><Bell size={21} />{total > 0 && <i>{total}</i>}</button>{open && <div className="notification-menu"><strong>Notificaciones</strong><div><WarningCircle size={18}/><span><b>{notices.findings} incidencias</b> abiertas o en revisión</span></div><div><Receipt size={18}/><span><b>{notices.expenses} gastos</b> pendientes de revisión</span></div>{total === 0 && <small>Todo está al día.</small>}</div>}</div>
         <div className="role-picker"><UserCircle size={26} weight="duotone" /><div><span>{email}</span><strong>{role}</strong></div></div>
       </div>
