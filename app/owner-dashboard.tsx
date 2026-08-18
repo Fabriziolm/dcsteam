@@ -3,6 +3,7 @@
 import { Car, ChartLineUp, CheckCircle, Clock, CurrencyDollar, DownloadSimple, Gauge, GasPump, Printer, Receipt, SpinnerGap, SteeringWheel, TrendUp, WarningCircle, X } from "@phosphor-icons/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../lib/supabase";
+import { useReportingYear, yearRange } from "./reporting-year";
 
 type Invoice={issue_date:string|null;amount_with_tax:number;paid_amount:number;status:string;source_system:string|null;updated_at:string;clients:{name:string}|null};
 type Service={id:string;service_date:string;status:string;client_id:string|null;vehicle_id:string|null;km_start:number|null;km_end:number|null;notes:string|null;source_system:string|null;updated_at:string;clients:{name:string}|null};
@@ -14,16 +15,17 @@ function money(value:number){return `S/ ${value.toLocaleString("es-PE",{minimumF
 function Metric({title,value,note,tone,icon:Icon}:{title:string;value:string;note:string;tone:string;icon:any}){return <article className={`metric ${tone}`}><div className="metric-head"><span>{title}</span><i><Icon size={22}/></i></div><strong>{value}</strong><small><TrendUp size={14}/>{note}</small></article>}
 
 export function LiveOwnerDashboard(){
+  const {year}=useReportingYear(),range=yearRange(year);
   const [invoices,setInvoices]=useState<Invoice[]>([]),[services,setServices]=useState<Service[]>([]),[expenses,setExpenses]=useState<Expense[]>([]),[vehicles,setVehicles]=useState<Vehicle[]>([]),[findings,setFindings]=useState<Finding[]>([]);
   const [weeks,setWeeks]=useState(12),[loading,setLoading]=useState(true),[error,setError]=useState(""),[showReport,setShowReport]=useState(false);
   const alertsRef=useRef<HTMLElement|null>(null);
   const load=useCallback(async()=>{if(!supabase)return;setLoading(true);setError("");const [a,b,c,d,e]=await Promise.all([
-    supabase.from("invoices").select("issue_date,amount_with_tax,paid_amount,status,source_system,updated_at,clients(name)").neq("status","Anulada"),
-    supabase.from("services").select("id,service_date,status,client_id,vehicle_id,km_start,km_end,notes,source_system,updated_at,clients(name)").order("service_date"),
-    supabase.from("expenses").select("amount,category,status,expense_date,source_system,updated_at").neq("status","Rechazado"),
+    supabase.from("invoices").select("issue_date,amount_with_tax,paid_amount,status,source_system,updated_at,clients(name)").neq("status","Anulada").gte("issue_date",range.start).lte("issue_date",range.end),
+    supabase.from("services").select("id,service_date,status,client_id,vehicle_id,km_start,km_end,notes,source_system,updated_at,clients(name)").gte("service_date",range.start).lte("service_date",range.end).order("service_date"),
+    supabase.from("expenses").select("amount,category,status,expense_date,source_system,updated_at").neq("status","Rechazado").gte("expense_date",range.start).lte("expense_date",range.end),
     supabase.from("vehicles").select("id,name,plate,current_km,status").eq("active",true).order("name"),
-    supabase.from("findings").select("id,severity,description,status,created_at").in("status",["Abierto","En revisión"]).order("created_at",{ascending:false})
-  ]);const first=a.error||b.error||c.error||d.error||e.error;if(first)setError(first.message);else{setInvoices((a.data||[]) as unknown as Invoice[]);setServices((b.data||[]) as unknown as Service[]);setExpenses((c.data||[]) as Expense[]);setVehicles((d.data||[]) as Vehicle[]);setFindings((e.data||[]) as Finding[])}setLoading(false)},[]);
+    supabase.from("findings").select("id,severity,description,status,created_at").in("status",["Abierto","En revisión"]).gte("created_at",`${range.start}T00:00:00`).lte("created_at",`${range.end}T23:59:59`).order("created_at",{ascending:false})
+  ]);const first=a.error||b.error||c.error||d.error||e.error;if(first)setError(first.message);else{setInvoices((a.data||[]) as unknown as Invoice[]);setServices((b.data||[]) as unknown as Service[]);setExpenses((c.data||[]) as Expense[]);setVehicles((d.data||[]) as Vehicle[]);setFindings((e.data||[]) as Finding[])}setLoading(false)},[range.start,range.end]);
   useEffect(()=>{void load();if(!supabase)return;const client=supabase;const channel=client.channel("executive-live").on("postgres_changes",{event:"*",schema:"public",table:"services"},()=>void load()).on("postgres_changes",{event:"*",schema:"public",table:"invoices"},()=>void load()).on("postgres_changes",{event:"*",schema:"public",table:"expenses"},()=>void load()).on("postgres_changes",{event:"*",schema:"public",table:"findings"},()=>void load()).subscribe();return()=>{void client.removeChannel(channel)}},[load]);
   const metrics=useMemo(()=>{const billed=invoices.reduce((n,r)=>n+Number(r.amount_with_tax),0),collected=invoices.reduce((n,r)=>n+Number(r.paid_amount),0),spent=expenses.reduce((n,r)=>n+Number(r.amount),0);return{billed,collected,pending:Math.max(0,billed-collected),spent}},[invoices,expenses]);
   const series=useMemo(()=>{const now=new Date();return Array.from({length:weeks},(_,index)=>{const end=new Date(now);end.setDate(now.getDate()-(weeks-1-index)*7);const start=new Date(end);start.setDate(end.getDate()-6);const value=services.filter(s=>{const d=new Date(`${s.service_date}T12:00:00`);return d>=start&&d<=end}).length;return{label:`S${index+1}`,value}})},[services,weeks]);

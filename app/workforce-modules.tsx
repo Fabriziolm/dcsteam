@@ -14,6 +14,7 @@ import {
 } from "@phosphor-icons/react";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
+import { useReportingYear, yearRange } from "./reporting-year";
 
 type Finding = {
   id: string;
@@ -46,6 +47,7 @@ export function FindingsManagement({
 }: {
   canManage?: boolean;
 }) {
+  const {year}=useReportingYear(),range=yearRange(year);
   const [rows, setRows] = useState<Finding[]>([]),
     [loading, setLoading] = useState(true),
     [show, setShow] = useState(false),
@@ -65,12 +67,14 @@ export function FindingsManagement({
       .select(
         "id,category,severity,description,status,created_at,vehicles(name,plate)",
       )
+      .gte("created_at",`${range.start}T00:00:00`)
+      .lte("created_at",`${range.end}T23:59:59`)
       .order("created_at", { ascending: false })
       .limit(100);
     if (r.error) setError(r.error.message);
     else setRows((r.data || []) as unknown as Finding[]);
     setLoading(false);
-  }, []);
+  }, [range.start,range.end]);
   useEffect(() => {
     void load();
   }, [load]);
@@ -476,6 +480,7 @@ type AttendanceEntry = {
 type AttendanceCorrection={id:string;user_id:string;time_entry_id:string;correction_type:string;proposed_time:string|null;reason:string;original_clock_in:string|null;original_clock_out:string|null;status:string;created_at:string};
 
 export function AttendanceManagement() {
+  const {year}=useReportingYear(),range=yearRange(year);
   const [rows, setRows] = useState<AttendanceEntry[]>([]);
   const [people, setPeople] = useState<Record<string, string>>({});
   const [corrections,setCorrections]=useState<AttendanceCorrection[]>([]);
@@ -487,7 +492,7 @@ export function AttendanceManagement() {
     if (!supabase) return;
     setLoading(true);setError("");
     const [entries,profiles,requests]=await Promise.all([
-      supabase.from("time_entries").select("id,user_id,work_date,clock_in,clock_out,status,clock_in_lat,clock_in_lng,clock_in_accuracy,clock_in_photo,clock_out_lat,clock_out_lng,clock_out_accuracy,clock_out_photo").order("work_date", { ascending: false }).limit(150),
+      supabase.from("time_entries").select("id,user_id,work_date,clock_in,clock_out,status,clock_in_lat,clock_in_lng,clock_in_accuracy,clock_in_photo,clock_out_lat,clock_out_lng,clock_out_accuracy,clock_out_photo").gte("work_date",range.start).lte("work_date",range.end).order("work_date", { ascending: false }).limit(500),
       supabase.from("profiles").select("id,full_name,email"),
       supabase.from("attendance_correction_requests").select("id,user_id,time_entry_id,correction_type,proposed_time,reason,original_clock_in,original_clock_out,status,created_at").eq("status","Pendiente").order("created_at",{ascending:false}),
     ]);
@@ -498,7 +503,7 @@ export function AttendanceManagement() {
       setCorrections((requests.data||[]) as AttendanceCorrection[]);
     }
     setLoading(false);
-  },[]);
+  },[range.start,range.end]);
   useEffect(() => {
     void load();
     if(!supabase)return;

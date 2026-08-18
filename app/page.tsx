@@ -53,6 +53,7 @@ import {
 import { GpsLive } from "./gps-live";
 import { PwaInstall } from "./pwa-install";
 import { FuelReport } from "./fuel-report";
+import { ReportingYearPicker, ReportingYearProvider } from "./reporting-year";
 import { isSupabaseConfigured, supabase } from "../lib/supabase";
 
 type Role = "Administrador" | "Chofer" | "Auxiliar";
@@ -456,6 +457,7 @@ function Header({
         </h1>
       </div>
       <div className="header-actions">
+        {role === "Administrador" && <ReportingYearPicker />}
         <GlobalSearch role={role} onNavigate={onNavigate} />
         <button className="icon-button guide-help-button" onClick={onShowGuide} aria-label="Abrir guía de uso" title="Guía de uso"><Question size={21}/></button>
         <PwaInstall />
@@ -973,7 +975,7 @@ function Dashboard({ session }: { session: Session }) {
       <OperativePortal role={role as "Chofer" | "Auxiliar"} session={session} />
     );
   return (
-    <div className="app-shell">
+    <ReportingYearProvider><div className="app-shell">
       <Sidebar role={role} view={view} setView={setView} onSignOut={signOut} />
       <div className="main-area">
         <Header
@@ -986,7 +988,7 @@ function Dashboard({ session }: { session: Session }) {
         {content}
       </div>
       {showGuide&&<OnboardingGuide role={role} onNavigate={setView} onFinish={finishGuide}/>}
-    </div>
+    </div></ReportingYearProvider>
   );
 }
 

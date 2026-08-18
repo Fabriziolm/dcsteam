@@ -12,6 +12,7 @@ import {
 } from "@phosphor-icons/react";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
+import { useReportingYear, yearRange } from "./reporting-year";
 
 type Client = { id: string; name: string };
 type BillableService = {
@@ -83,6 +84,7 @@ function Notice({ error, message }: { error: string; message: string }) {
 }
 
 export function BillingManagement() {
+  const {year}=useReportingYear(),range=yearRange(year);
   const [rows, setRows] = useState<Invoice[]>([]),
     [clients, setClients] = useState<Client[]>([]),
     [billableServices, setBillableServices] = useState<BillableService[]>([]);
@@ -109,6 +111,8 @@ export function BillingManagement() {
         .select(
           "id,invoice_number,issue_date,amount_with_tax,paid_amount,status,concept,clients(name)",
         )
+        .gte("issue_date",range.start)
+        .lte("issue_date",range.end)
         .order("issue_date", { ascending: false })
         .limit(100),
       supabase
@@ -121,6 +125,8 @@ export function BillingManagement() {
         .select("id,service_date,merchandise,origin,destination,client_id,clients(name),vehicles(plate)")
         .eq("status", "Completado")
         .eq("invoiced", false)
+        .gte("service_date",range.start)
+        .lte("service_date",range.end)
         .order("service_date", { ascending: false }),
     ]);
     if (a.error || b.error || c.error)
@@ -131,7 +137,7 @@ export function BillingManagement() {
       setBillableServices((c.data || []) as unknown as BillableService[]);
     }
     setLoading(false);
-  }, []);
+  }, [range.start,range.end]);
   useEffect(() => {
     void load();
     if (!supabase) return;
@@ -385,6 +391,7 @@ function DataTable({
 }
 
 export function ExpensesManagement() {
+  const {year}=useReportingYear(),range=yearRange(year);
   const [rows, setRows] = useState<Expense[]>([]),
     [cashRows, setCashRows] = useState<CashMovement[]>([]),
     [loading, setLoading] = useState(true),
@@ -396,13 +403,13 @@ export function ExpensesManagement() {
     if (!supabase) return;
     setLoading(true);
     const [r,cash] = await Promise.all([
-      supabase.from("expenses").select("id,expense_date,category,concept,amount,status,receipt_url,vehicles(name,plate),clients(name)").eq("source_system", "dcs_app").order("expense_date", { ascending: false }).limit(150),
-      supabase.from("cash_movements").select("id,movement_date,movement_type,concept,amount,updated_at").order("movement_date", { ascending: false }).limit(500),
+      supabase.from("expenses").select("id,expense_date,category,concept,amount,status,receipt_url,vehicles(name,plate),clients(name)").eq("source_system", "dcs_app").gte("expense_date",range.start).lte("expense_date",range.end).order("expense_date", { ascending: false }).limit(500),
+      supabase.from("cash_movements").select("id,movement_date,movement_type,concept,amount,updated_at").gte("movement_date",range.start).lte("movement_date",range.end).order("movement_date", { ascending: false }).limit(1500),
     ]);
     if (r.error || cash.error) setError(r.error?.message || cash.error?.message || "No se pudo cargar caja.");
     else { setRows((r.data || []) as unknown as Expense[]); setCashRows((cash.data || []) as CashMovement[]); }
     setLoading(false);
-  }, []);
+  }, [range.start,range.end]);
   useEffect(() => {
     void load();
     if (!supabase) return;

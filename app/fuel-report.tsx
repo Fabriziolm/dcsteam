@@ -3,6 +3,7 @@
 import { DownloadSimple, GasPump, SpinnerGap, WarningCircle } from "@phosphor-icons/react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
+import { useReportingYear, yearRange } from "./reporting-year";
 
 type FuelExpense = {
   id: string;
@@ -26,6 +27,7 @@ type FuelSummary = {
 };
 
 export function FuelReport() {
+  const {year}=useReportingYear(),range=yearRange(year);
   const [rows,setRows]=useState<FuelExpense[]>([]);
   const [services,setServices]=useState<DeliveryService[]>([]);
   const [loading,setLoading]=useState(true);
@@ -34,13 +36,13 @@ export function FuelReport() {
     if(!supabase)return;
     setLoading(true);setError("");
     const [result,serviceResult]=await Promise.all([
-      supabase.from("expenses").select("id,expense_date,category,amount,status,vehicles(name,plate)").eq("source_system","dcs_app").in("category",["Gasolina","GLP","Petróleo"]).neq("status","Rechazado").order("expense_date",{ascending:true}),
-      supabase.from("services").select("service_date,delivery_points,status,vehicles(plate)").eq("status","Completado").order("service_date",{ascending:true}),
+      supabase.from("expenses").select("id,expense_date,category,amount,status,vehicles(name,plate)").eq("source_system","dcs_app").in("category",["Gasolina","GLP","Petróleo"]).neq("status","Rechazado").gte("expense_date",range.start).lte("expense_date",range.end).order("expense_date",{ascending:true}),
+      supabase.from("services").select("service_date,delivery_points,status,vehicles(plate)").eq("status","Completado").gte("service_date",range.start).lte("service_date",range.end).order("service_date",{ascending:true}),
     ]);
     if(result.error||serviceResult.error)setError(result.error?.message||serviceResult.error?.message||"No se pudo calcular el reporte.");
     else {setRows((result.data||[]) as unknown as FuelExpense[]);setServices((serviceResult.data||[]) as unknown as DeliveryService[]);}
     setLoading(false);
-  },[]);
+  },[range.start,range.end]);
   useEffect(()=>{void load();if(!supabase)return;const client=supabase;const channel=client.channel("fuel-management-report").on("postgres_changes",{event:"*",schema:"public",table:"expenses"},()=>void load()).on("postgres_changes",{event:"*",schema:"public",table:"services"},()=>void load()).subscribe();return()=>{void client.removeChannel(channel)}},[load]);
   const summary=useMemo(()=>{
     const groups=new Map<string,FuelExpense[]>();
