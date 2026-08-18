@@ -32,7 +32,7 @@ import {
   X,
 } from "@phosphor-icons/react";
 import type { Session } from "@supabase/supabase-js";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { LoginScreen } from "./login-screen";
 import { PendingApproval, TeamManagement } from "./team-management";
 import { ServicesManagement } from "./services-management";
@@ -931,9 +931,24 @@ function Dashboard({ session }: { session: Session }) {
   const role = roleFromSession(session);
   const owner = role === "Administrador";
   const operationsManager = owner;
-  const [view, setView] = useState(owner ? "Resumen" : "Mi ruta");
+  const defaultView=owner?"Resumen":"Mi ruta";
+  const allowedViews=useMemo(()=>owner?["Resumen","Operaciones","GPS en vivo","Clientes","Facturación","Caja y gastos","Flota","Marcaciones","Equipo"]:["Mi ruta","Gastos","Mis horas","Incidencias"],[owner]);
+  const viewKey=`dcs_last_view_${session.user.id}_${role}`;
+  const [view, setView] = useState(defaultView);
   const [showGuide,setShowGuide]=useState(false);
   const guideKey=`dcs_guide_v1_${session.user.id}_${role}`;
+  const navigateView=useCallback((next:string,replace=false)=>{
+    if(!allowedViews.includes(next))return;
+    setView(next);localStorage.setItem(viewKey,next);
+    const state={...window.history.state,dcsView:next};
+    if(replace)window.history.replaceState(state,"");else window.history.pushState(state,"");
+  },[allowedViews,viewKey]);
+  useEffect(()=>{
+    const saved=localStorage.getItem(viewKey),initial=saved&&allowedViews.includes(saved)?saved:defaultView;
+    setView(initial);window.history.replaceState({...window.history.state,dcsView:initial},"");
+    const restore=(event:PopStateEvent)=>{const previous=event.state?.dcsView;const next=allowedViews.includes(previous)?previous:(localStorage.getItem(viewKey)||defaultView);setView(allowedViews.includes(next)?next:defaultView);localStorage.setItem(viewKey,allowedViews.includes(next)?next:defaultView)};
+    window.addEventListener("popstate",restore);return()=>window.removeEventListener("popstate",restore);
+  },[allowedViews,defaultView,viewKey]);
   useEffect(()=>{setShowGuide(localStorage.getItem(guideKey)!=="completed")},[guideKey]);
   const finishGuide=()=>{localStorage.setItem(guideKey,"completed");setShowGuide(false)};
   const signOut = () => {
@@ -976,18 +991,18 @@ function Dashboard({ session }: { session: Session }) {
     );
   return (
     <ReportingYearProvider><div className="app-shell">
-      <Sidebar role={role} view={view} setView={setView} onSignOut={signOut} />
+      <Sidebar role={role} view={view} setView={navigateView} onSignOut={signOut} />
       <div className="main-area">
         <Header
           role={role}
           email={session.user.email ?? "Usuario DCS"}
-          onNavigate={setView}
+          onNavigate={navigateView}
           onShowGuide={()=>setShowGuide(true)}
           onSignOut={signOut}
         />
         {content}
       </div>
-      {showGuide&&<OnboardingGuide role={role} onNavigate={setView} onFinish={finishGuide}/>}
+      {showGuide&&<OnboardingGuide role={role} onNavigate={(next)=>navigateView(next,true)} onFinish={finishGuide}/>}
     </div></ReportingYearProvider>
   );
 }

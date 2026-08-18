@@ -201,6 +201,7 @@ export function OperativePortal({
   useEffect(() => {
     if (initialAction) open(initialAction);
   }, [initialAction]);
+  useEffect(()=>{const closeOnBack=()=>setAction(null);window.addEventListener("popstate",closeOnBack);return()=>window.removeEventListener("popstate",closeOnBack)},[]);
   const activeShift = Boolean(shift?.clock_in && !shift.clock_out);
   const completed = services.filter((s) => s.status === "Completado").length;
   const elapsed = useMemo(
@@ -222,6 +223,7 @@ export function OperativePortal({
     setError("");
     setMessage("");
     setReceipt(null);
+    if(next)window.history.pushState({...window.history.state,dcsModal:true},"");
     setForm((f) => ({
       ...f,
       service_id: service?.id || "",
@@ -241,6 +243,10 @@ export function OperativePortal({
             ? "En ruta"
             : "Completado",
     }));
+  }
+
+  function closeAction(){
+    if(window.history.state?.dcsModal)window.history.back();else setAction(null);
   }
 
   async function submit(event: FormEvent) {
@@ -327,7 +333,7 @@ export function OperativePortal({
     }
     if (result.error) setError(result.error.message);
     else {
-      setAction(null);
+      closeAction();
       setMessage(action === "attendance" ? activeShift ? "Salida registrada con ubicación y evidencia." : "Entrada registrada con ubicación y evidencia." : action === "attendance-correction" ? "Solicitud enviada a administración para revisión." : "Registro guardado correctamente.");
       await loadData();
     }
@@ -497,12 +503,12 @@ export function OperativePortal({
         </aside>
       </section>
       {action && (
-        <div className="modal-backdrop" onMouseDown={() => setAction(null)}>
+        <div className="modal-backdrop" onMouseDown={closeAction}>
           <section
             className="action-modal"
             onMouseDown={(e) => e.stopPropagation()}
           >
-            <button className="modal-close" onClick={() => setAction(null)}>
+            <button className="modal-close" onClick={closeAction}>
               <X size={20} />
             </button>
             {action === "detail" && selected ? (
@@ -739,7 +745,7 @@ export function OperativePortal({
                   </>
                 )}
                 <div className="form-actions">
-                  <button type="button" onClick={() => setAction(null)}>
+                  <button type="button" onClick={closeAction}>
                     Cancelar
                   </button>
                   <button className="primary" disabled={saving}>
