@@ -107,6 +107,7 @@ export function OperativePortal({
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [receipt, setReceipt] = useState<File | null>(null);
+  const expenseDraftKey=`dcs_expense_draft_${session.user.id}`;
   const [form, setForm] = useState({
     service_id: "",
     client_id: "",
@@ -223,6 +224,8 @@ export function OperativePortal({
   }
 
   function open(next: Action, service?: Service) {
+    let draft:Partial<typeof form>={};
+    if(next==="fuel"||next==="expense")try{draft=JSON.parse(localStorage.getItem(expenseDraftKey)||"{}") as Partial<typeof form>}catch{draft={}}
     setSelected(service || null);
     setAction(next);
     setError("");
@@ -232,12 +235,12 @@ export function OperativePortal({
     setForm((f) => ({
       ...f,
       service_id: service?.id || "",
-      client_id: "",
+      client_id: draft.client_id || "",
       vehicle_id: service?.vehicle_id || vehicles[0]?.id || "",
       km: "",
-      amount: "",
-      concept: "",
-      category: next === "fuel" ? "Gasolina" : "Peaje",
+      amount: draft.amount || "",
+      concept: draft.concept || "",
+      category: draft.category || (next === "fuel" ? "Gasolina" : "Peaje"),
       description: "",
       correction_type: shift?.clock_out ? "Salida" : "Entrada",
       correction_time: new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,16),
@@ -249,6 +252,11 @@ export function OperativePortal({
             : "Completado",
     }));
   }
+
+  useEffect(()=>{
+    if(action!=="fuel"&&action!=="expense")return;
+    localStorage.setItem(expenseDraftKey,JSON.stringify({client_id:form.client_id,amount:form.amount,concept:form.concept,category:form.category}));
+  },[action,expenseDraftKey,form.amount,form.category,form.client_id,form.concept]);
 
   function closeAction(){
     if(window.history.state?.dcsModal)window.history.back();else setAction(null);
@@ -284,6 +292,7 @@ export function OperativePortal({
       if(!Number.isFinite(odometer)||odometer<0){setError("Ingresa un kilometraje válido.");setSaving(false);return}
       result=await supabase.rpc("record_vehicle_odometer",{target_vehicle_id:form.vehicle_id,odometer});
     } else if (action === "fuel" || action === "expense") {
+      if(!form.client_id){setError("Selecciona el cliente antes de guardar el gasto.");setSaving(false);return}
       if (!form.vehicle_id) { setError("Administración debe asignarte una unidad antes de registrar gastos."); setSaving(false); return; }
       const amount = Number(form.amount);
       if (!Number.isFinite(amount) || amount <= 0 || amount > 10000) { setError("El importe debe ser mayor a S/ 0 y menor o igual a S/ 10,000."); setSaving(false); return; }
@@ -343,6 +352,7 @@ export function OperativePortal({
     }
     if (result.error) setError(result.error.message);
     else {
+      if(action==="fuel"||action==="expense")localStorage.removeItem(expenseDraftKey);
       closeAction();
       setMessage(action === "attendance" ? activeShift ? "Salida registrada con ubicación y evidencia." : "Entrada registrada con ubicación y evidencia." : action === "attendance-correction" ? "Solicitud enviada a administración para revisión." : "Registro guardado correctamente.");
       await loadData();
@@ -562,6 +572,7 @@ export function OperativePortal({
                           ? "Reportar incidencia"
                           : "Actualizar servicio"}
                 </h3>
+                {error&&<div className="module-error"><WarningCircle size={18}/>{error}</div>}
                 {action !== "attendance" && action !== "attendance-correction" && action !== "fuel" && action !== "expense" && action !== "km" && action !== "finding" && (
                   <label>
                     Servicio
@@ -620,6 +631,7 @@ export function OperativePortal({
                       <select
                         required
                         value={form.client_id}
+                        onInvalid={()=>setError("Selecciona el cliente antes de guardar el gasto.")}
                         onChange={(e) =>
                           setForm({ ...form, client_id: e.target.value })
                         }
