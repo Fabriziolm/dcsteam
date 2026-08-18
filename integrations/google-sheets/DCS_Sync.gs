@@ -11,7 +11,8 @@ function syncDcs(){
   const props=PropertiesService.getScriptProperties();
   const url=props.getProperty("SYNC_URL"),secret=props.getProperty("SYNC_SECRET");
   if(!url||!secret)throw new Error("Configura SYNC_URL y SYNC_SECRET en Propiedades del script.");
-  const payload={services:readServices(),invoices:readInvoices(),cash:readCashMovements()};
+  const cashData=readCashData();
+  const payload={services:readServices(),invoices:readInvoices(),cash:cashData.movements,cashBalances:cashData.balances};
   const response=UrlFetchApp.fetch(url,{method:"post",contentType:"application/json",headers:{"x-sync-secret":secret},payload:JSON.stringify(payload),muteHttpExceptions:true});
   if(response.getResponseCode()>=300)throw new Error(response.getContentText());
   console.log(response.getContentText());
@@ -29,16 +30,23 @@ function readInvoices(){
   const values=sh.getRange(2,2,Math.max(0,sh.getLastRow()-1),12).getValues();
   return values.map((r,i)=>{const raw=text(r[9]).toUpperCase();return{sourceKey:`invoice:${i+2}`,issueDate:isoDate(r[0]),number:text(r[1]),paymentDate:isoDate(r[10]),client:text(r[3]),ruc:text(r[4]),withoutTax:num(r[5]),withTax:num(r[6]),withholding:num(r[7]),paid:num(r[8]),status:raw.includes("PAGADO")?"Pagado":raw.includes("PARCIAL")?"Parcial":"Pendiente",concept:text(r[11])}}).filter(r=>r.client);
 }
-function readCashMovements(){
+function readCashData(){
   const sh=SpreadsheetApp.openById(SOURCES.cash).getSheetByName("EXPRES 2026");
-  const values=sh.getRange(5,2,Math.max(0,sh.getLastRow()-4),4).getValues();
-  return values.flatMap((r,i)=>{
-    const base={sourceKey:`cash:${i+5}`,concept:text(r[0]),date:isoDate(r[1])};
-    const income=num(r[2]),expense=num(r[3]),rows=[];
-    if(income>0)rows.push({...base,sourceKey:`${base.sourceKey}:income`,type:"Ingreso",amount:income});
-    if(expense>0)rows.push({...base,sourceKey:`${base.sourceKey}:expense`,type:"Egreso",amount:expense});
-    return rows;
-  }).filter(r=>r.date&&r.amount>0);
+  const values=sh.getRange(5,2,Math.max(0,sh.getLastRow()-4),5).getValues();
+  const movements=[],balances=[];
+  let lastDate="";
+  values.forEach((r,i)=>{
+    const row=i+5,concept=text(r[0]),date=isoDate(r[1]);
+    if(date)lastDate=date;
+    const income=num(r[2]),expense=num(r[3]),balance=num(r[4]);
+    const isSummary=/\b(TOTAL|CIERRE|CUADRE)\b/i.test(concept);
+    if(isSummary&&balance!=null&&lastDate)balances.push({sourceKey:`cash-balance:${row}`,date:lastDate,label:concept||`Cierre fila ${row}`,balance});
+    if(isSummary)return;
+    const base={sourceKey:`cash:${row}`,concept,date};
+    if(income>0)movements.push({...base,sourceKey:`${base.sourceKey}:income`,type:"Ingreso",amount:income});
+    if(expense>0)movements.push({...base,sourceKey:`${base.sourceKey}:expense`,type:"Egreso",amount:expense});
+  });
+  return{movements:movements.filter(r=>r.date&&r.amount>0),balances};
 }
 function text(v){return v==null?"":String(v).trim()}
 function num(v){if(v===""||v==null)return null;const n=Number(String(v).replace(/[^0-9.-]/g,""));return isNaN(n)?null:n}

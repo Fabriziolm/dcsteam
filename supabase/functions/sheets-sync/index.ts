@@ -15,6 +15,7 @@ Deno.serve(async(req)=>{
   try{
     const body=await req.json();
     if(!Array.isArray(body.services)||!Array.isArray(body.invoices)||!Array.isArray(body.cash))throw new Error("El payload debe incluir services, invoices y cash.");
+    const cashBalances=Array.isArray(body.cashBalances)?body.cashBalances:[];
     const run=await db.from("sheet_sync_runs").insert({status:"Ejecutando"}).select("id").single();
     if(run.error)throw run.error;runId=run.data.id;
     const [{data:clientRows},{data:vehicleRows},{data:profiles}]=await Promise.all([
@@ -36,9 +37,12 @@ Deno.serve(async(req)=>{
     await db.from("invoices").update({invoice_number:null}).eq("source_system","google_sheets");
     const invoiceRows=[];for(const row of body.invoices){if(!row.sourceKey||!row.client)continue;const cid=await clientId(row.client,row.ruc);invoiceRows.push({source_system:"google_sheets",source_key:row.sourceKey,invoice_number:row.number||null,issue_date:row.issueDate||null,payment_date:row.paymentDate||null,client_id:cid,amount_without_tax:Number(row.withoutTax)||0,amount_with_tax:Number(row.withTax)||Number(row.withoutTax)||0,withholding_amount:Number(row.withholding)||0,paid_amount:Number(row.paid)||0,status:row.status||"Pendiente",concept:row.concept||null,created_by:actor,updated_at:new Date().toISOString()})}
     for(const batch of chunks(invoiceRows)){const invoice=await db.from("invoices").upsert(batch,{onConflict:"source_system,source_key"});if(invoice.error)throw invoice.error;invoiceCount+=batch.length}
-    const cashRows=body.cash.filter(row=>row.sourceKey&&row.date&&row.type&&Number(row.amount)>0).map(row=>({source_system:"google_sheets",source_key:row.sourceKey,movement_date:row.date,movement_type:row.type,concept:row.concept||"Sin concepto",amount:Number(row.amount),updated_at:new Date().toISOString()}));
+    const isCashSummary=(concept:unknown)=>/\b(TOTAL|CIERRE|CUADRE)\b/i.test(String(concept??""));
+    const cashRows=body.cash.filter(row=>row.sourceKey&&row.date&&row.type&&Number(row.amount)>0&&!isCashSummary(row.concept)).map(row=>({source_system:"google_sheets",source_key:row.sourceKey,movement_date:row.date,movement_type:row.type,concept:row.concept||"Sin concepto",amount:Number(row.amount),updated_at:new Date().toISOString()}));
     for(const batch of chunks(cashRows)){const movement=await db.from("cash_movements").upsert(batch,{onConflict:"source_system,source_key"});if(movement.error)throw movement.error;cashCount+=batch.length}
-    const pruned=await db.rpc("prune_google_sheet_rows",{service_keys:keys(body.services),invoice_keys:keys(body.invoices),cash_keys:keys(body.cash)});if(pruned.error)throw pruned.error;
+    const balanceRows=cashBalances.filter(row=>row.sourceKey&&row.date&&Number.isFinite(Number(row.balance))).map(row=>({source_system:"google_sheets",source_key:row.sourceKey,balance_date:row.date,label:row.label||"Cierre de caja",balance:Number(row.balance),updated_at:new Date().toISOString()}));
+    for(const batch of chunks(balanceRows)){const balance=await db.from("cash_balance_snapshots").upsert(batch,{onConflict:"source_system,source_key"});if(balance.error)throw balance.error}
+    const pruned=await db.rpc("prune_google_sheet_rows",{service_keys:keys(body.services),invoice_keys:keys(body.invoices),cash_keys:keys(cashRows),cash_balance_keys:keys(balanceRows)});if(pruned.error)throw pruned.error;
     await db.from("sheet_sync_runs").update({status:"Correcta",services_count:serviceCount,invoices_count:invoiceCount,cash_count:cashCount,finished_at:new Date().toISOString()}).eq("id",runId);
     return json({ok:true,services:serviceCount,invoices:invoiceCount,cash:cashCount,syncedAt:new Date().toISOString()});
   }catch(error){const detail=error instanceof Error?error.message:JSON.stringify(error);if(runId)await db.from("sheet_sync_runs").update({status:"Error",detail,finished_at:new Date().toISOString()}).eq("id",runId);console.error("DCS sheet sync failed",error);return json({error:detail},400)}

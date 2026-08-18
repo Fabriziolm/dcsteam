@@ -394,6 +394,7 @@ export function ExpensesManagement() {
   const {year}=useReportingYear(),range=yearRange(year);
   const [rows, setRows] = useState<Expense[]>([]),
     [cashRows, setCashRows] = useState<CashMovement[]>([]),
+    [cashOpening, setCashOpening] = useState<{balance_date:string;balance:number}|null>(null),
     [loading, setLoading] = useState(true),
     [downloading, setDownloading] = useState(false),
     [reviewingId, setReviewingId] = useState(""),
@@ -402,12 +403,13 @@ export function ExpensesManagement() {
   const load = useCallback(async () => {
     if (!supabase) return;
     setLoading(true);
-    const [r,cash] = await Promise.all([
+    const [r,cash,balance] = await Promise.all([
       supabase.from("expenses").select("id,expense_date,category,concept,amount,status,receipt_url,vehicles(name,plate),clients(name)").eq("source_system", "dcs_app").gte("expense_date",range.start).lte("expense_date",range.end).order("expense_date", { ascending: false }).limit(500),
       supabase.from("cash_movements").select("id,movement_date,movement_type,concept,amount,updated_at").gte("movement_date",range.start).lte("movement_date",range.end).order("movement_date", { ascending: false }).limit(1500),
+      supabase.from("cash_balance_snapshots").select("balance_date,balance").lte("balance_date",range.end).order("balance_date",{ascending:false}).limit(1).maybeSingle(),
     ]);
-    if (r.error || cash.error) setError(r.error?.message || cash.error?.message || "No se pudo cargar caja.");
-    else { setRows((r.data || []) as unknown as Expense[]); setCashRows((cash.data || []) as CashMovement[]); }
+    if (r.error || cash.error || balance.error) setError(r.error?.message || cash.error?.message || balance.error?.message || "No se pudo cargar caja.");
+    else { setRows((r.data || []) as unknown as Expense[]); setCashRows((cash.data || []) as CashMovement[]); setCashOpening(balance.data as {balance_date:string;balance:number}|null); }
     setLoading(false);
   }, [range.start,range.end]);
   useEffect(() => {
@@ -417,6 +419,7 @@ export function ExpensesManagement() {
     const channel = client.channel("expenses-management-live")
       .on("postgres_changes", { event: "*", schema: "public", table: "expenses" }, () => void load())
       .on("postgres_changes", { event: "*", schema: "public", table: "cash_movements" }, () => void load())
+      .on("postgres_changes", { event: "*", schema: "public", table: "cash_balance_snapshots" }, () => void load())
       .subscribe();
     return () => { void client.removeChannel(channel); };
   }, [load]);
@@ -532,7 +535,9 @@ export function ExpensesManagement() {
     .reduce((n, r) => n + Number(r.amount), 0);
   const sheetIncome=cashRows.filter(row=>row.movement_type==="Ingreso").reduce((sum,row)=>sum+Number(row.amount),0);
   const sheetExpense=cashRows.filter(row=>row.movement_type==="Egreso").reduce((sum,row)=>sum+Number(row.amount),0);
-  const sheetBalance=sheetIncome-sheetExpense;
+  const movementsAfterClose=cashOpening?cashRows.filter(row=>row.movement_date>cashOpening.balance_date):cashRows;
+  const movementAfterCloseNet=movementsAfterClose.reduce((sum,row)=>sum+(row.movement_type==="Ingreso"?1:-1)*Number(row.amount),0);
+  const sheetBalance=(cashOpening?Number(cashOpening.balance):0)+movementAfterCloseNet;
   const weekStart = new Date();
   weekStart.setHours(0, 0, 0, 0);
   weekStart.setDate(weekStart.getDate() - ((weekStart.getDay() + 6) % 7));
@@ -584,7 +589,7 @@ export function ExpensesManagement() {
       <section className="metrics-grid compact">
         <article className="metric green"><span>Ingresos del Sheet</span><strong>S/ {sheetIncome.toLocaleString("es-PE",{minimumFractionDigits:2})}</strong></article>
         <article className="metric amber"><span>Egresos del Sheet</span><strong>S/ {sheetExpense.toLocaleString("es-PE",{minimumFractionDigits:2})}</strong></article>
-        <article className="metric blue"><span>Saldo calculado</span><strong>S/ {sheetBalance.toLocaleString("es-PE",{minimumFractionDigits:2})}</strong></article>
+        <article className="metric blue"><span>Importe total en caja</span><strong>S/ {sheetBalance.toLocaleString("es-PE",{minimumFractionDigits:2})}</strong><small>{cashOpening?`Cierre ${cashOpening.balance_date} + movimientos posteriores`:"Entradas menos salidas del periodo"}</small></article>
       </section>
       <section className="panel data-panel"><div className="panel-title"><div><span>FUENTE: GOOGLE SHEETS</span><h3>Entradas y salidas sincronizadas</h3></div><b className="status green-status">Solo lectura</b></div><div className="table-scroll"><table className="data-table"><thead><tr><th>Fecha</th><th>Movimiento</th><th>Concepto</th><th>Importe</th></tr></thead><tbody>{cashRows.slice(0,150).map(row=><tr key={row.id}><td>{row.movement_date}</td><td><b className={`status ${row.movement_type==="Ingreso"?"green-status":"amber-status"}`}>{row.movement_type}</b></td><td>{row.concept}</td><td>S/ {Number(row.amount).toFixed(2)}</td></tr>)}</tbody></table></div></section>
       <section className="metrics-grid compact">

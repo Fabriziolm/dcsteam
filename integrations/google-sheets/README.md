@@ -11,7 +11,7 @@ Fuentes canónicas:
 
 ## Activación
 
-1. Aplicar `supabase/migrations/20260817040000_cash_movements_sync.sql`.
+1. Aplicar las migraciones hasta `supabase/migrations/20260817070000_cash_balance_snapshots.sql`.
 2. Desplegar `supabase/functions/sheets-sync` con el nombre `bright-endpoint`.
 3. Verificar el secreto `SHEETS_SYNC_SECRET` en Supabase.
 4. Crear un proyecto independiente de Apps Script y pegar `DCS_Sync.gs`.
