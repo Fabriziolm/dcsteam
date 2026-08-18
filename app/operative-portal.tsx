@@ -16,7 +16,7 @@ import {
   X,
 } from "@phosphor-icons/react";
 import type { Session } from "@supabase/supabase-js";
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../lib/supabase";
 
 type Role = "Chofer" | "Auxiliar";
@@ -51,6 +51,36 @@ type Service = {
 };
 type Action =
   "attendance" | "attendance-correction" | "km" | "fuel" | "expense" | "finding" | "detail" | "progress" | null;
+
+function AttendanceCamera({file,onCapture}:{file:File|null;onCapture:(file:File|null)=>void}) {
+  const videoRef=useRef<HTMLVideoElement>(null),streamRef=useRef<MediaStream|null>(null);
+  const [cameraOpen,setCameraOpen]=useState(false),[cameraError,setCameraError]=useState("");
+  const [preview,setPreview]=useState("");
+  const stopCamera=useCallback(()=>{streamRef.current?.getTracks().forEach(track=>track.stop());streamRef.current=null;setCameraOpen(false)},[]);
+  useEffect(()=>()=>stopCamera(),[stopCamera]);
+  useEffect(()=>{if(cameraOpen&&videoRef.current&&streamRef.current){videoRef.current.srcObject=streamRef.current;void videoRef.current.play()}},[cameraOpen]);
+  useEffect(()=>{if(!file){setPreview("");return}const url=URL.createObjectURL(file);setPreview(url);return()=>URL.revokeObjectURL(url)},[file]);
+  async function startCamera(){
+    setCameraError("");
+    if(!navigator.mediaDevices?.getUserMedia){setCameraError("Este navegador no permite usar la cámara dentro de la app.");return}
+    try{
+      const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:"environment"},width:{ideal:1280},height:{ideal:960}},audio:false});
+      streamRef.current=stream;setCameraOpen(true);
+    }catch{setCameraError("Permite el acceso a la cámara en la configuración del navegador.")}
+  }
+  function capture(){
+    const video=videoRef.current;if(!video||!video.videoWidth){setCameraError("La cámara aún está iniciando. Inténtalo nuevamente.");return}
+    const scale=Math.min(1,1280/video.videoWidth),canvas=document.createElement("canvas");
+    canvas.width=Math.round(video.videoWidth*scale);canvas.height=Math.round(video.videoHeight*scale);
+    canvas.getContext("2d")?.drawImage(video,0,0,canvas.width,canvas.height);
+    canvas.toBlob(blob=>{if(!blob){setCameraError("No se pudo capturar la imagen.");return}onCapture(new File([blob],`marcacion_${Date.now()}.jpg`,{type:"image/jpeg"}));stopCamera()},"image/jpeg",0.72);
+  }
+  return <div className="attendance-camera">
+    {cameraOpen?<><video ref={videoRef} autoPlay muted playsInline/><div className="camera-actions"><button type="button" onClick={stopCamera}>Cancelar</button><button type="button" className="primary" onClick={capture}><Camera size={19}/>Capturar foto</button></div></>:preview?<><img src={preview} alt="Evidencia temporal de marcación"/><div className="camera-actions"><button type="button" onClick={()=>{onCapture(null);void startCamera()}}>Tomar otra</button><b>✓ Evidencia lista</b></div></>:<button type="button" className="camera-start" onClick={()=>void startCamera()}><Camera size={24}/>Abrir cámara dentro de la app</button>}
+    {cameraError&&<small className="camera-error">{cameraError}</small>}
+    <small>La captura se comprime y se envía directamente. No se guarda en la galería.</small>
+  </div>
+}
 
 export function OperativePortal({
   role,
@@ -535,7 +565,7 @@ export function OperativePortal({
                     </select>
                   </label>
                 )}
-                {action === "attendance" && <div className="attendance-proof"><MapPin size={25}/><div><strong>Ubicación obligatoria</strong><p>Al guardar solicitaremos tu ubicación GPS exacta.</p></div><div className="receipt-picker"><strong>Foto tomada ahora</strong><div><label className="receipt-option"><Camera size={22}/> Abrir cámara<input type="file" accept="image/*" capture="environment" onChange={(e)=>setReceipt(e.target.files?.[0]||null)}/></label></div>{receipt&&<b className="receipt-selected">✓ Evidencia lista</b>}<small>La galería no está habilitada para esta marcación.</small></div></div>}
+                {action === "attendance" && <div className="attendance-proof"><MapPin size={25}/><div><strong>Ubicación obligatoria</strong><p>Al guardar solicitaremos tu ubicación GPS exacta.</p></div><div className="receipt-picker"><strong>Foto tomada ahora</strong><AttendanceCamera file={receipt} onCapture={setReceipt}/></div></div>}
                 {action === "attendance-correction"&&<><div className="attendance-correction-note"><WarningCircle size={20}/><p>La marcación original no se elimina. Administración revisará esta solicitud y quedará registrada en la auditoría.</p></div><label>¿Qué deseas corregir?<select value={form.correction_type} onChange={e=>setForm({...form,correction_type:e.target.value})}><option>Entrada</option><option>Salida</option>{shift?.clock_out&&<option>Reabrir</option>}</select></label>{form.correction_type!=="Reabrir"&&<label>Hora correcta<input type="datetime-local" required value={form.correction_time} onChange={e=>setForm({...form,correction_time:e.target.value})}/></label>}<label>Motivo<textarea required minLength={8} value={form.description} onChange={e=>setForm({...form,description:e.target.value})} placeholder="Explica qué marcaste por error y cuál es la corrección…"/></label></>}
                 {(action === "km" || action === "progress") && (
                   <label>
