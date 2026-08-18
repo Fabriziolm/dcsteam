@@ -324,11 +324,11 @@ export function OperativePortal({
         status: "Pendiente",
       });
     } else if (action === "finding") {
-      const service = services.find((s) => s.id === form.service_id);
+      if(!form.vehicle_id){setError("Selecciona la unidad relacionada con la incidencia.");setSaving(false);return}
       result = await supabase.from("findings").insert({
         reported_by: session.user.id,
-        service_id: form.service_id || null,
-        vehicle_id: service?.vehicle_id || null,
+        service_id: null,
+        vehicle_id: form.vehicle_id,
         category: "Operación",
         severity: form.severity,
         description: form.description,
@@ -562,7 +562,7 @@ export function OperativePortal({
                           ? "Reportar incidencia"
                           : "Actualizar servicio"}
                 </h3>
-                {action !== "attendance" && action !== "attendance-correction" && action !== "fuel" && action !== "expense" && action !== "km" && (
+                {action !== "attendance" && action !== "attendance-correction" && action !== "fuel" && action !== "expense" && action !== "km" && action !== "finding" && (
                   <label>
                     Servicio
                     <select
@@ -582,6 +582,7 @@ export function OperativePortal({
                   </label>
                 )}
                 {action === "km"&&<label>Unidad<select required value={form.vehicle_id} onChange={e=>setForm({...form,vehicle_id:e.target.value})}><option value="">Seleccionar unidad</option>{fleetVehicles.map(vehicle=><option key={vehicle.id} value={vehicle.id}>{vehicle.name} · {vehicle.plate}</option>)}</select></label>}
+                {action === "finding"&&<label>Unidad<select required value={form.vehicle_id} onChange={e=>setForm({...form,vehicle_id:e.target.value})}><option value="">Seleccionar unidad</option>{fleetVehicles.map(vehicle=><option key={vehicle.id} value={vehicle.id}>{vehicle.name} · {vehicle.plate}</option>)}</select></label>}
                 {action === "attendance" && <div className="attendance-proof"><MapPin size={25}/><div><strong>Ubicación obligatoria</strong><p>Al guardar solicitaremos tu ubicación GPS exacta.</p></div><div className="receipt-picker"><strong>Foto tomada ahora</strong><AttendanceCamera file={receipt} onCapture={setReceipt}/></div></div>}
                 {action === "attendance-correction"&&<><div className="attendance-correction-note"><WarningCircle size={20}/><p>La marcación original no se elimina. Administración revisará esta solicitud y quedará registrada en la auditoría.</p></div><label>¿Qué deseas corregir?<select value={form.correction_type} onChange={e=>setForm({...form,correction_type:e.target.value})}><option>Entrada</option><option>Salida</option>{shift?.clock_out&&<option>Reabrir</option>}</select></label>{form.correction_type!=="Reabrir"&&<label>Hora correcta<input type="datetime-local" required value={form.correction_time} onChange={e=>setForm({...form,correction_time:e.target.value})}/></label>}<label>Motivo<textarea required minLength={8} value={form.description} onChange={e=>setForm({...form,description:e.target.value})} placeholder="Explica qué marcaste por error y cuál es la corrección…"/></label></>}
                 {(action === "km" || action === "progress") && (
