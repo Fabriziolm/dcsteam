@@ -94,6 +94,7 @@ export function OperativePortal({
   const [services, setServices] = useState<Service[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
+  const [fleetVehicles, setFleetVehicles] = useState<Vehicle[]>([]);
   const [shift, setShift] = useState<{
     id: string;
     clock_in: string;
@@ -126,7 +127,7 @@ export function OperativePortal({
     if (!supabase) return;
     setLoading(true);
     setError("");
-    const [serviceResult, shiftResult, clientResult, vehicleResult] =
+    const [serviceResult, shiftResult, clientResult, vehicleResult, fleetResult] =
       await Promise.all([
         supabase
           .from("services")
@@ -156,18 +157,21 @@ export function OperativePortal({
           .eq("user_id", session.user.id)
           .eq("active", true)
           .maybeSingle(),
+        supabase.from("vehicles").select("id,name,plate").eq("active",true).order("name"),
       ]);
     if (
       serviceResult.error ||
       shiftResult.error ||
       clientResult.error ||
-      vehicleResult.error
+      vehicleResult.error ||
+      fleetResult.error
     )
       setError(
         serviceResult.error?.message ||
           shiftResult.error?.message ||
           clientResult.error?.message ||
           vehicleResult.error?.message ||
+          fleetResult.error?.message ||
           "No se pudo cargar la jornada.",
       );
     else {
@@ -191,6 +195,7 @@ export function OperativePortal({
       );
       const assignedVehicle = vehicleResult.data?.vehicles as unknown as Vehicle | null;
       setVehicles(assignedVehicle ? [assignedVehicle] : []);
+      setFleetVehicles((fleetResult.data||[]) as Vehicle[]);
     }
     setLoading(false);
   }, [session.user.id, today]);
@@ -273,6 +278,11 @@ export function OperativePortal({
       result = activeShift && shift
         ? await supabase.from("time_entries").update({ clock_out:new Date().toISOString(), clock_out_lat:location.latitude, clock_out_lng:location.longitude, clock_out_accuracy:location.accuracy, clock_out_photo:evidencePath, status:"Cerrada", updated_at:new Date().toISOString() }).eq("id",shift.id)
         : await supabase.from("time_entries").insert({ user_id:session.user.id, work_date:today, clock_in:new Date().toISOString(), clock_in_lat:location.latitude, clock_in_lng:location.longitude, clock_in_accuracy:location.accuracy, clock_in_photo:evidencePath, status:"Abierta" });
+    } else if(action==="km"){
+      const odometer=Number(form.km);
+      if(!form.vehicle_id){setError("Selecciona la unidad.");setSaving(false);return}
+      if(!Number.isFinite(odometer)||odometer<0){setError("Ingresa un kilometraje válido.");setSaving(false);return}
+      result=await supabase.rpc("record_vehicle_odometer",{target_vehicle_id:form.vehicle_id,odometer});
     } else if (action === "fuel" || action === "expense") {
       if (!form.vehicle_id) { setError("Administración debe asignarte una unidad antes de registrar gastos."); setSaving(false); return; }
       const amount = Number(form.amount);
@@ -552,7 +562,7 @@ export function OperativePortal({
                           ? "Reportar incidencia"
                           : "Actualizar servicio"}
                 </h3>
-                {action !== "attendance" && action !== "attendance-correction" && action !== "fuel" && action !== "expense" && (
+                {action !== "attendance" && action !== "attendance-correction" && action !== "fuel" && action !== "expense" && action !== "km" && (
                   <label>
                     Servicio
                     <select
@@ -571,6 +581,7 @@ export function OperativePortal({
                     </select>
                   </label>
                 )}
+                {action === "km"&&<label>Unidad<select required value={form.vehicle_id} onChange={e=>setForm({...form,vehicle_id:e.target.value})}><option value="">Seleccionar unidad</option>{fleetVehicles.map(vehicle=><option key={vehicle.id} value={vehicle.id}>{vehicle.name} · {vehicle.plate}</option>)}</select></label>}
                 {action === "attendance" && <div className="attendance-proof"><MapPin size={25}/><div><strong>Ubicación obligatoria</strong><p>Al guardar solicitaremos tu ubicación GPS exacta.</p></div><div className="receipt-picker"><strong>Foto tomada ahora</strong><AttendanceCamera file={receipt} onCapture={setReceipt}/></div></div>}
                 {action === "attendance-correction"&&<><div className="attendance-correction-note"><WarningCircle size={20}/><p>La marcación original no se elimina. Administración revisará esta solicitud y quedará registrada en la auditoría.</p></div><label>¿Qué deseas corregir?<select value={form.correction_type} onChange={e=>setForm({...form,correction_type:e.target.value})}><option>Entrada</option><option>Salida</option>{shift?.clock_out&&<option>Reabrir</option>}</select></label>{form.correction_type!=="Reabrir"&&<label>Hora correcta<input type="datetime-local" required value={form.correction_time} onChange={e=>setForm({...form,correction_time:e.target.value})}/></label>}<label>Motivo<textarea required minLength={8} value={form.description} onChange={e=>setForm({...form,description:e.target.value})} placeholder="Explica qué marcaste por error y cuál es la corrección…"/></label></>}
                 {(action === "km" || action === "progress") && (
