@@ -405,7 +405,10 @@ function Header({
       });
     };
     void loadNotices();
-    if (role !== "Administrador") return;
+    const refreshTimer = window.setInterval(() => void loadNotices(), 30000);
+    const refreshOnFocus = () => void loadNotices();
+    window.addEventListener("focus", refreshOnFocus);
+    if (role !== "Administrador") return () => { window.clearInterval(refreshTimer); window.removeEventListener("focus", refreshOnFocus); };
     const channel = client
       .channel("admin-operational-alerts")
       .on(
@@ -420,6 +423,8 @@ function Header({
       )
       .subscribe();
     return () => {
+      window.clearInterval(refreshTimer);
+      window.removeEventListener("focus", refreshOnFocus);
       void client.removeChannel(channel);
     };
   }, [role]);
