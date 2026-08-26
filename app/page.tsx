@@ -3,7 +3,6 @@
 import {
   ArrowRight,
   Bell,
-  Buildings,
   CalendarCheck,
   Car,
   CaretDown,
@@ -39,7 +38,6 @@ import { ServicesManagement } from "./services-management";
 import { OperativePortal } from "./operative-portal";
 import {
   BillingManagement,
-  ClientsManagement,
   ExpensesManagement,
   FleetManagement,
 } from "./admin-modules";
@@ -54,7 +52,7 @@ import {
 import { GpsLive } from "./gps-live";
 import { PwaInstall } from "./pwa-install";
 import { FuelReport } from "./fuel-report";
-import { AdminDailyClientMetrics, AdminGrowthFindingsObjectives, AdminWeeklyOperations, AdminWeeklyReports, WorkerDailyClientMetrics, WorkerWeeklyServiceSummary } from "./admin-weekly-reports";
+import { AdminDailyClientMetrics, AdminGrowthFindingsObjectives, AdminWeeklyOperations, AdminWeeklyReports, DailyDeliveryRegister, WorkerDailyClientMetrics, WorkerWeeklyServiceSummary } from "./admin-weekly-reports";
 import { ReportingYearPicker, ReportingYearProvider } from "./reporting-year";
 import { isSupabaseConfigured, supabase } from "../lib/supabase";
 
@@ -128,7 +126,7 @@ function Sidebar({
         ["Resumen", House],
         ["Operaciones", SteeringWheel],
         ["GPS en vivo", MapPin],
-        ["Clientes", Buildings],
+        ["Registro de entregas diario", ListChecks],
         ["Facturación", Receipt],
         ["Caja y gastos", CurrencyDollar],
         ["Reportes semanales", ChartLineUp],
@@ -138,6 +136,7 @@ function Sidebar({
       ]
     : [
         ["Mi ruta", House],
+        ["Registro de entregas diario", ListChecks],
         ["Gastos", Receipt],
         ["Mis horas", Clock],
         ["Incidencias", WarningCircle],
@@ -908,7 +907,7 @@ const adminGuide:GuideStep[]=[
   {view:"Resumen",title:"Resumen",description:"Consulta indicadores en tiempo real, alertas y genera reportes gerenciales en CSV o PDF."},
   {view:"Operaciones",title:"Operaciones",description:"Programa servicios, asigna personal y unidades, y controla el estado de cada recorrido."},
   {view:"GPS en vivo",title:"GPS en vivo",description:"Revisa la ubicación enviada por Inkacel y abre el mapa completo cuando necesites más detalle."},
-  {view:"Clientes",title:"Clientes",description:"Registra datos comerciales, fiscales y contactos usados en servicios y facturación."},
+  {view:"Registro de entregas diario",title:"Registro de entregas diario",description:"Consulta las entregas del día, clientes, unidades, kilometraje, duración y estado."},
   {view:"Facturación",title:"Facturación",description:"Convierte servicios cerrados en facturas y controla importes cobrados o pendientes."},
   {view:"Caja y gastos",title:"Caja y gastos",description:"Revisa comprobantes, aprueba o rechaza gastos y descarga la carpeta semanal."},
   {view:"Flota",title:"Flota",description:"Administra placas, kilometraje, combustible y disponibilidad de las unidades."},
@@ -917,6 +916,7 @@ const adminGuide:GuideStep[]=[
 ];
 const workerGuide:GuideStep[]=[
   {view:"Mi ruta",title:"Mi ruta",description:"Inicia o cierra tu jornada con ubicación y foto, consulta servicios y registra avances."},
+  {view:"Registro de entregas diario",title:"Registro de entregas diario",description:"Consulta tus entregas asignadas para cada día con cliente, ruta, unidad, KM y duración."},
   {view:"Gastos",title:"Gastos",description:"Registra combustible, peajes u otros gastos con cliente, unidad y foto del comprobante."},
   {view:"Mis horas",title:"Mis horas",description:"Consulta tus jornadas, horas registradas y estado de cada marcación."},
   {view:"Incidencias",title:"Incidencias",description:"Reporta problemas del servicio o la unidad para que administración pueda atenderlos."},
@@ -935,7 +935,7 @@ function Dashboard({ session }: { session: Session }) {
   const owner = role === "Administrador";
   const operationsManager = owner;
   const defaultView=owner?"Resumen":"Mi ruta";
-  const allowedViews=useMemo(()=>owner?["Resumen","Operaciones","GPS en vivo","Clientes","Facturación","Caja y gastos","Reportes semanales","Flota","Marcaciones","Equipo"]:["Mi ruta","Gastos","Mis horas","Incidencias"],[owner]);
+  const allowedViews=useMemo(()=>owner?["Resumen","Operaciones","GPS en vivo","Registro de entregas diario","Facturación","Caja y gastos","Reportes semanales","Flota","Marcaciones","Equipo"]:["Mi ruta","Registro de entregas diario","Gastos","Mis horas","Incidencias"],[owner]);
   const viewKey=`dcs_last_view_${session.user.id}_${role}`;
   const [view, setView] = useState(defaultView);
   const [showGuide,setShowGuide]=useState(false);
@@ -961,7 +961,9 @@ function Dashboard({ session }: { session: Session }) {
     void supabase?.auth.signOut();
   };
   const content =
-    owner && view === "Equipo" ? (
+    view === "Registro de entregas diario" ? (
+      <DailyDeliveryRegister />
+    ) : owner && view === "Equipo" ? (
       <TeamManagement />
     ) : owner && view === "Marcaciones" ? (
       <><AdminWorkHoursReport/><AttendanceManagement /></>
@@ -981,8 +983,6 @@ function Dashboard({ session }: { session: Session }) {
       />
     ) : owner && view === "Facturación" ? (
       <BillingManagement />
-    ) : owner && view === "Clientes" ? (
-      <ClientsManagement />
     ) : owner && view === "Caja y gastos" ? (
       <ExpensesManagement />
     ) : owner && view === "Reportes semanales" ? (
