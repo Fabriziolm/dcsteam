@@ -258,6 +258,7 @@ export function HoursManagement({role}:{role:"Chofer"|"Auxiliar"}) {
   const [rows, setRows] = useState<Entry[]>([]),
     [holidays,setHolidays]=useState<Holiday[]>([]),
     [importedHours,setImportedHours]=useState<ImportedWorkHour[]>([]),
+    [selectedWeeks,setSelectedWeeks]=useState<string[]>([]),
     [loading, setLoading] = useState(true),
     [error, setError] = useState("");
   useEffect(() => {
@@ -272,6 +273,9 @@ export function HoursManagement({role}:{role:"Chofer"|"Auxiliar"}) {
         setLoading(false);
       });
   }, []);
+  useEffect(()=>{
+    if(importedHours.length&&!selectedWeeks.length)setSelectedWeeks(importedHours.slice(0,4).map(row=>row.id));
+  },[importedHours,selectedWeeks.length]);
   const minutes = useMemo(
     () =>
       rows.reduce(
@@ -309,6 +313,8 @@ export function HoursManagement({role}:{role:"Chofer"|"Auxiliar"}) {
     importedHours.forEach(row=>{const key=row.week_start.slice(0,7),current=months.get(key)||{minutes:0,weeks:0};current.minutes+=row.worked_minutes;current.weeks+=1;months.set(key,current)});
     return [...months.entries()].sort(([a],[b])=>b.localeCompare(a));
   },[importedHours]);
+  const selectedMinutes=useMemo(()=>importedHours.filter(row=>selectedWeeks.includes(row.id)).reduce((sum,row)=>sum+row.worked_minutes,0),[importedHours,selectedWeeks]);
+  const toggleWeek=(id:string)=>setSelectedWeeks(current=>current.includes(id)?current.filter(value=>value!==id):current.length<4?[...current,id]:current);
   return (
     <main className="content">
       <section className="welcome">
@@ -359,7 +365,7 @@ export function HoursManagement({role}:{role:"Chofer"|"Auxiliar"}) {
       </section>
       <section className="panel data-panel">
         <div className="panel-title"><div><span>HISTÓRICO IMPORTADO</span><h3>Horas semanales desde marzo</h3></div><b className="status green-status">Google Sheets</b></div>
-        {importedHours.length===0?<div className="empty-state">Aún no hay horas históricas sincronizadas.</div>:<><div className="report-summary">{importedMonths.map(([month,value])=><div key={month}><span>{new Date(`${month}-02T12:00:00`).toLocaleDateString("es-PE",{month:"long",year:"numeric"})}</span><strong>{Math.floor(value.minutes/60)}h {value.minutes%60}m</strong><small>{value.weeks} semanas</small></div>)}</div><div className="table-scroll"><table className="data-table"><thead><tr><th>Semana</th><th>Horas</th><th>Fuente</th></tr></thead><tbody>{importedHours.map(row=><tr key={row.id}><td>{row.week_start}</td><td><strong>{Math.floor(row.worked_minutes/60)}h {row.worked_minutes%60}m</strong></td><td>{row.source_value||"Google Sheets"}</td></tr>)}</tbody></table></div></>}
+        {importedHours.length===0?<div className="empty-state">Aún no hay horas históricas sincronizadas.</div>:<><div className="report-summary">{importedMonths.map(([month,value])=><div key={month}><span>{new Date(`${month}-02T12:00:00`).toLocaleDateString("es-PE",{month:"long",year:"numeric"})}</span><strong>{Math.floor(value.minutes/60)}h {value.minutes%60}m</strong><small>{value.weeks} semanas</small></div>)}</div><details className="week-selector"><summary><span>Calcular por semanas</span><strong>{selectedWeeks.length}/4 seleccionadas · {Math.floor(selectedMinutes/60)}h {selectedMinutes%60}m</strong></summary><div className="week-options"><div className="week-selection-result"><span>Total de las semanas elegidas</span><strong>{Math.floor(selectedMinutes/60)}h {selectedMinutes%60}m</strong><button type="button" onClick={()=>setSelectedWeeks([])}>Limpiar</button></div>{importedHours.map(row=>{const selected=selectedWeeks.includes(row.id);return <label className={selected?"selected":""} key={row.id}><input type="checkbox" checked={selected} disabled={!selected&&selectedWeeks.length>=4} onChange={()=>toggleWeek(row.id)}/><span>Semana del {new Date(`${row.week_start}T12:00:00`).toLocaleDateString("es-PE",{day:"2-digit",month:"short",year:"numeric"})}</span><strong>{Math.floor(row.worked_minutes/60)}h {row.worked_minutes%60}m</strong></label>})}</div></details><div className="table-scroll"><table className="data-table"><thead><tr><th>Semana</th><th>Horas</th><th>Fuente</th></tr></thead><tbody>{importedHours.map(row=><tr key={row.id}><td>{row.week_start}</td><td><strong>{Math.floor(row.worked_minutes/60)}h {row.worked_minutes%60}m</strong></td><td>{row.source_value||"Google Sheets"}</td></tr>)}</tbody></table></div></>}
       </section>
       <section className="panel weekly-pay-detail">
         <div className="panel-title"><div><span>ESTIMACIÓN SEMANAL</span><h3>{weekly.start} al {weekly.end}</h3></div><b className="status blue-status">Referencial</b></div>
