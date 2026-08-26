@@ -434,6 +434,7 @@ export function OperativePortal({
         </div>
       )}
       {routeMessage&&<div className="module-success"><CheckCircle size={20}/>{routeMessage}</div>}
+      {role === "Chofer" && <section className="operative-guide panel"><div><span>GUÍA RÁPIDA</span><h3>Cómo registrar tu jornada y servicios</h3></div><ol><li><strong>Inicio de jornada:</strong> registra el KM del tablero y tu ubicación.</li><li><strong>Por cada cliente:</strong> abre el servicio, registra KM inicial y selecciona En ruta.</li><li><strong>Al terminar:</strong> registra KM final y selecciona Completado.</li><li><strong>Peajes y gastos:</strong> súbelos con importe, cliente y comprobante.</li></ol><small>El KM del servicio permite calcular kilómetros y utilidad por cliente.</small></section>}
       <section className="operative-grid">
         <div className="schedule">
             <div className="section-heading">
