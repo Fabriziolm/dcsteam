@@ -3,7 +3,6 @@
 import { CalendarCheck, Car, CheckCircle, MapPin, PencilSimple, Plus, SpinnerGap, Users, WarningCircle } from "@phosphor-icons/react";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
-import { useReportingYear, yearRange } from "./reporting-year";
 
 type Option = { id: string; name: string };
 type Staff = { id: string; full_name: string | null; email: string | null };
@@ -25,7 +24,6 @@ const splitClientOptions=(items:Option[])=>{
 const statuses = ["Programado", "Confirmado", "En ruta", "Completado", "Cancelado"];
 
 export function ServicesManagement() {
-  const {year}=useReportingYear(),range=yearRange(year);
   const [services, setServices] = useState<ServiceRow[]>([]);
   const [clients, setClients] = useState<Option[]>([]);
   const [vehicles, setVehicles] = useState<Array<Option & { plate: string }>>([]);
@@ -43,7 +41,7 @@ export function ServicesManagement() {
     if (!supabase) return;
     setLoading(true); setError("");
     const [serviceResult, clientResult, vehicleResult, staffResult] = await Promise.all([
-      supabase.from("services").select("id,service_date,created_at,merchandise,origin,destination,scheduled_start,status,clients(name),vehicles(name,plate)").gte("service_date",range.start).lte("service_date",range.end).order("created_at", { ascending: false }).order("service_date", { ascending: false }).limit(100),
+      supabase.from("services").select("id,service_date,created_at,merchandise,origin,destination,scheduled_start,status,clients(name),vehicles(name,plate)").order("created_at", { ascending: false }).order("service_date", { ascending: false }).limit(100),
       supabase.from("clients").select("id,name").eq("active", true).order("name"),
       supabase.from("vehicles").select("id,name,plate").eq("active", true).order("name"),
       supabase.from("profiles").select("id,full_name,email").eq("active", true).order("full_name"),
@@ -57,7 +55,7 @@ export function ServicesManagement() {
       setStaff((staffResult.data ?? []) as Staff[]);
     }
     setLoading(false);
-  }, [range.start,range.end]);
+  }, []);
 
   useEffect(() => {
     void loadData();
