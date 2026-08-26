@@ -962,7 +962,7 @@ function Dashboard({ session }: { session: Session }) {
   };
   const content =
     view === "Registro de entregas diario" ? (
-      <DailyDeliveryRegister />
+      <DailyDeliveryRegister administrator={owner} />
     ) : owner && view === "Equipo" ? (
       <TeamManagement />
     ) : owner && view === "Marcaciones" ? (
