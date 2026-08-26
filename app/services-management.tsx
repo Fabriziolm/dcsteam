@@ -21,7 +21,7 @@ const splitClientOptions=(items:Option[])=>{
   return [...result.values()].sort((a,b)=>a.name.localeCompare(b.name,"es"));
 };
 
-const statuses = ["Programado", "Confirmado", "En ruta", "Completado", "Cancelado"];
+const statuses = ["Programado", "Confirmado", "En ruta", "Completado", "Cancelado", "Editar datos"];
 
 export function ServicesManagement() {
   const [services, setServices] = useState<ServiceRow[]>([]);
@@ -125,6 +125,7 @@ export function ServicesManagement() {
     if (!supabase) return;
     const current = services.find((service) => service.id === id);
     if (!current || current.status === status) return;
+    if (status === "Editar datos") { editService(current); return; }
     if (status === "Completado" && !window.confirm("¿Confirmas el cierre de este servicio? Se enviará una alerta de facturación al administrador.")) return;
     if (status === "Cancelado" && !window.confirm("¿Confirmas la cancelación de este servicio?")) return;
     setUpdatingId(id); setError(""); setMessage("");
