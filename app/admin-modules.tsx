@@ -402,7 +402,9 @@ export function ExpensesManagement() {
   const period=periodForMonth(year,month,range);
   const [rows, setRows] = useState<Expense[]>([]),
     [cashRows, setCashRows] = useState<CashMovement[]>([]),
+    [currentCashRows, setCurrentCashRows] = useState<CashMovement[]>([]),
     [cashOpening, setCashOpening] = useState<{balance_date:string;balance:number}|null>(null),
+    [currentCashOpening, setCurrentCashOpening] = useState<{balance_date:string;balance:number}|null>(null),
     [loading, setLoading] = useState(true),
     [downloading, setDownloading] = useState(false),
     [reviewingId, setReviewingId] = useState(""),
@@ -411,13 +413,15 @@ export function ExpensesManagement() {
   const load = useCallback(async () => {
     if (!supabase) return;
     setLoading(true);
-    const [r,cash,balance] = await Promise.all([
+    const [r,cash,balance,currentCash,currentBalance] = await Promise.all([
       supabase.from("expenses").select("id,expense_date,category,concept,amount,status,receipt_url,vehicles(name,plate),clients(name)").eq("source_system", "dcs_app").gte("expense_date",period.start).lte("expense_date",period.end).order("expense_date", { ascending: false }).limit(500),
       supabase.from("cash_movements").select("id,movement_date,movement_type,concept,amount,updated_at").gte("movement_date",period.start).lte("movement_date",period.end).order("movement_date", { ascending: false }).limit(1500),
       supabase.from("cash_balance_snapshots").select("balance_date,balance").lte("balance_date",period.end).order("balance_date",{ascending:false}).limit(1).maybeSingle(),
+      supabase.from("cash_movements").select("id,movement_date,movement_type,concept,amount,updated_at").lte("movement_date",new Date().toISOString().slice(0,10)).order("movement_date", { ascending: false }).limit(5000),
+      supabase.from("cash_balance_snapshots").select("balance_date,balance").lte("balance_date",new Date().toISOString().slice(0,10)).order("balance_date",{ascending:false}).limit(1).maybeSingle(),
     ]);
-    if (r.error || cash.error || balance.error) setError(r.error?.message || cash.error?.message || balance.error?.message || "No se pudo cargar caja.");
-    else { setRows((r.data || []) as unknown as Expense[]); setCashRows((cash.data || []) as CashMovement[]); setCashOpening(balance.data as {balance_date:string;balance:number}|null); }
+    if (r.error || cash.error || balance.error || currentCash.error || currentBalance.error) setError(r.error?.message || cash.error?.message || balance.error?.message || currentCash.error?.message || currentBalance.error?.message || "No se pudo cargar caja.");
+    else { setRows((r.data || []) as unknown as Expense[]); setCashRows((cash.data || []) as CashMovement[]); setCashOpening(balance.data as {balance_date:string;balance:number}|null); setCurrentCashRows((currentCash.data || []) as CashMovement[]); setCurrentCashOpening(currentBalance.data as {balance_date:string;balance:number}|null); }
     setLoading(false);
   }, [period.start,period.end]);
   useEffect(() => {
@@ -546,6 +550,8 @@ export function ExpensesManagement() {
   const movementsAfterClose=cashOpening?cashRows.filter(row=>row.movement_date>cashOpening.balance_date):cashRows;
   const movementAfterCloseNet=movementsAfterClose.reduce((sum,row)=>sum+(row.movement_type==="Ingreso"?1:-1)*Number(row.amount),0);
   const sheetBalance=(cashOpening?Number(cashOpening.balance):0)+movementAfterCloseNet;
+  const currentMovementsAfterClose=currentCashOpening?currentCashRows.filter(row=>row.movement_date>currentCashOpening.balance_date):currentCashRows;
+  const currentBalance=(currentCashOpening?Number(currentCashOpening.balance):0)+currentMovementsAfterClose.reduce((sum,row)=>sum+(row.movement_type==="Ingreso"?1:-1)*Number(row.amount),0);
   const weekStart = new Date();
   weekStart.setHours(0, 0, 0, 0);
   weekStart.setDate(weekStart.getDate() - ((weekStart.getDay() + 6) % 7));
@@ -598,7 +604,7 @@ export function ExpensesManagement() {
       <section className="metrics-grid compact">
         <article className="metric green"><span>Entradas registradas</span><strong>S/ {sheetIncome.toLocaleString("es-PE",{minimumFractionDigits:2})}</strong></article>
         <article className="metric amber"><span>Salidas registradas</span><strong>S/ {sheetExpense.toLocaleString("es-PE",{minimumFractionDigits:2})}</strong></article>
-        <article className="metric blue"><span>Importe total en caja</span><strong>S/ {sheetBalance.toLocaleString("es-PE",{minimumFractionDigits:2})}</strong><small>{cashOpening?`Cierre ${cashOpening.balance_date} + movimientos posteriores`:"Entradas menos salidas del periodo"}</small></article>
+        <article className="metric blue"><span>Saldo actual</span><strong>S/ {currentBalance.toLocaleString("es-PE",{minimumFractionDigits:2})}</strong><small>{currentCashOpening?`Cierre ${currentCashOpening.balance_date} + movimientos posteriores`:"Entradas menos salidas acumuladas"}</small></article>
       </section>
       <section className="panel data-panel"><div className="panel-title"><div><span>FUENTE: GOOGLE SHEETS</span><h3>Entradas y salidas sincronizadas</h3></div><b className="status green-status">Solo lectura</b></div><div className="table-scroll"><table className="data-table"><thead><tr><th>Fecha</th><th>Movimiento</th><th>Concepto</th><th>Importe</th></tr></thead><tbody>{cashRows.slice(0,150).map(row=><tr key={row.id}><td>{row.movement_date}</td><td><b className={`status ${row.movement_type==="Ingreso"?"green-status":"amber-status"}`}>{row.movement_type}</b></td><td>{row.concept}</td><td>S/ {Number(row.amount).toFixed(2)}</td></tr>)}</tbody></table></div></section>
       <section className="metrics-grid compact">

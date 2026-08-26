@@ -10,6 +10,7 @@ import {
   GasPump,
   ImageSquare,
   MapPin,
+  NavigationArrow,
   Receipt,
   SpinnerGap,
   WarningCircle,
@@ -42,6 +43,8 @@ type Service = {
   status: string;
   origin: string | null;
   destination: string | null;
+  destination_lat: number | null;
+  destination_lng: number | null;
   merchandise: string | null;
   km_start: number | null;
   km_end: number | null;
@@ -49,6 +52,7 @@ type Service = {
   clients: { name: string } | null;
   vehicles: { name: string; plate: string } | null;
 };
+const distanceKm=(a:{lat:number;lng:number},b:{lat:number;lng:number})=>{const radians=(value:number)=>value*Math.PI/180,dLat=radians(b.lat-a.lat),dLng=radians(b.lng-a.lng),lat1=radians(a.lat),lat2=radians(b.lat),value=Math.sin(dLat/2)**2+Math.cos(lat1)*Math.cos(lat2)*Math.sin(dLng/2)**2;return 6371*2*Math.atan2(Math.sqrt(value),Math.sqrt(1-value))};
 type Action =
   "attendance" | "attendance-correction" | "km" | "fuel" | "expense" | "finding" | "detail" | "progress" | null;
 
@@ -106,7 +110,9 @@ export function OperativePortal({
   const [selected, setSelected] = useState<Service | null>(null);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [routeMessage,setRouteMessage]=useState("");
   const [receipt, setReceipt] = useState<File | null>(null);
+  const [expenseReceipts,setExpenseReceipts]=useState<File[]>([]);
   const expenseDraftKey=`dcs_expense_draft_${session.user.id}`;
   const [form, setForm] = useState({
     service_id: "",
@@ -133,7 +139,7 @@ export function OperativePortal({
         supabase
           .from("services")
           .select(
-            "id,service_date,scheduled_start,status,origin,destination,merchandise,km_start,km_end,vehicle_id,clients(name),vehicles(name,plate)",
+            "id,service_date,scheduled_start,status,origin,destination,destination_lat,destination_lng,merchandise,km_start,km_end,vehicle_id,clients(name),vehicles(name,plate)",
           )
           .gte("service_date", today)
           .order("service_date")
@@ -224,6 +230,7 @@ export function OperativePortal({
   }
 
   function open(next: Action, service?: Service) {
+    if(next==="km"&&role!=="Chofer")return;
     let draft:Partial<typeof form>={};
     if(next==="fuel"||next==="expense")try{draft=JSON.parse(localStorage.getItem(expenseDraftKey)||"{}") as Partial<typeof form>}catch{draft={}}
     setSelected(service || null);
@@ -231,6 +238,7 @@ export function OperativePortal({
     setError("");
     setMessage("");
     setReceipt(null);
+    setExpenseReceipts([]);
     if(next)window.history.pushState({...window.history.state,dcsModal:true},"");
     setForm((f) => ({
       ...f,
@@ -260,6 +268,17 @@ export function OperativePortal({
 
   function closeAction(){
     if(window.history.state?.dcsModal)window.history.back();else setAction(null);
+  }
+
+  function optimizeAssignedRoute(){
+    setRouteMessage("");
+    const withCoordinates=services.filter(service=>service.destination_lat!=null&&service.destination_lng!=null);
+    if(withCoordinates.length<2){setRouteMessage("Para optimizar necesitas al menos dos puntos con coordenadas.");return}
+    navigator.geolocation.getCurrentPosition(position=>{
+      let current={lat:position.coords.latitude,lng:position.coords.longitude},remaining=[...withCoordinates],ordered:Service[]=[];
+      while(remaining.length){let nearestIndex=0,nearestDistance=Infinity;remaining.forEach((service,index)=>{const distance=distanceKm(current,{lat:service.destination_lat!,lng:service.destination_lng!});if(distance<nearestDistance){nearestDistance=distance;nearestIndex=index}});const [nearest]=remaining.splice(nearestIndex,1);ordered.push(nearest);current={lat:nearest.destination_lat!,lng:nearest.destination_lng!}}
+      const withoutCoordinates=services.filter(service=>service.destination_lat==null||service.destination_lng==null);setServices([...ordered,...withoutCoordinates]);setRouteMessage(`Ruta optimizada por cercanía: ${ordered.length} puntos con coordenadas.`);
+    },()=>setRouteMessage("No se pudo obtener tu ubicación para optimizar la ruta."),{enableHighAccuracy:true,timeout:10000});
   }
 
   async function submit(event: FormEvent) {
@@ -297,28 +316,32 @@ export function OperativePortal({
       const amount = Number(form.amount);
       if (!Number.isFinite(amount) || amount <= 0 || amount > 10000) { setError("El importe debe ser mayor a S/ 0 y menor o igual a S/ 10,000."); setSaving(false); return; }
       if (form.concept.trim().length < 4) { setError("Describe mejor el concepto del gasto."); setSaving(false); return; }
-      if (!receipt) {
+      if (!expenseReceipts.length) {
         setError("Toma o selecciona una foto del comprobante.");
         setSaving(false);
         return;
       }
-      if (!receipt.type.startsWith("image/")) { setError("El comprobante debe ser una imagen."); setSaving(false); return; }
-      if (receipt.size > 8 * 1024 * 1024) { setError("La imagen supera el máximo de 8 MB."); setSaving(false); return; }
+      if (expenseReceipts.some(file=>!file.type.startsWith("image/"))) { setError("Todos los comprobantes deben ser imágenes."); setSaving(false); return; }
+      if (expenseReceipts.some(file=>file.size > 8 * 1024 * 1024)) { setError("Cada imagen debe pesar como máximo 8 MB."); setSaving(false); return; }
       const duplicate = await supabase.from("expenses").select("id").eq("user_id",session.user.id).eq("expense_date",today).eq("vehicle_id",form.vehicle_id).eq("category",form.category).eq("amount",amount).eq("source_system","dcs_app").neq("status","Rechazado").limit(1);
       if (duplicate.error) { setError(duplicate.error.message); setSaving(false); return; }
       if (duplicate.data?.length) { setError("Posible comprobante duplicado: ya registraste hoy el mismo importe, tipo y unidad."); setSaving(false); return; }
-      const extension = receipt.name.split(".").pop()?.toLowerCase() || "jpg";
+      const receiptPaths:string[]=[];
+      for(const file of expenseReceipts){
+      const extension = file.name.split(".").pop()?.toLowerCase() || "jpg";
       const receiptPath = `${session.user.id}/${today}/${crypto.randomUUID()}.${extension}`;
       const upload = await supabase.storage
         .from("expense-receipts")
-        .upload(receiptPath, receipt, {
-          contentType: receipt.type,
+        .upload(receiptPath, file, {
+          contentType: file.type,
           upsert: false,
         });
       if (upload.error) {
-        setError(`No se pudo subir la foto: ${upload.error.message}`);
+        setError(`No se pudo subir el comprobante: ${upload.error.message}`);
         setSaving(false);
         return;
+      }
+      receiptPaths.push(receiptPath);
       }
       result = await supabase.from("expenses").insert({
         user_id: session.user.id,
@@ -328,7 +351,8 @@ export function OperativePortal({
         category: form.category,
         concept: form.concept,
           amount,
-        receipt_url: receiptPath,
+        receipt_url: receiptPaths[0],
+        receipt_urls: receiptPaths,
         source_system: "dcs_app",
         status: "Pendiente",
       });
@@ -402,14 +426,15 @@ export function OperativePortal({
           {message}
         </div>
       )}
+      {routeMessage&&<div className="module-success"><CheckCircle size={20}/>{routeMessage}</div>}
       <section className="operative-grid">
         <div className="schedule">
-          <div className="section-heading">
+            <div className="section-heading">
             <div>
               <span>AGENDA</span>
               <h3>Servicios asignados</h3>
             </div>
-            <b>{services.length} servicios</b>
+            <span className="route-actions"><b>{services.length} servicios</b>{role==="Chofer"&&<button type="button" onClick={optimizeAssignedRoute}><NavigationArrow size={16}/>Optimizar ruta</button>}</span>
           </div>
           {services.length === 0 ? (
             <div className="empty-state">
@@ -502,10 +527,10 @@ export function OperativePortal({
               </div>
             </div>
             <div className="quick-actions">
-              <button onClick={() => open("km")}>
+              {role==="Chofer"&&<button onClick={() => open("km")}>
                 <Gauge size={24} />
                 <span>Kilometraje</span>
-              </button>
+              </button>}
               <button onClick={() => open("fuel")}>
                 <GasPump size={24} />
                 <span>Combustible</span>
@@ -714,9 +739,8 @@ export function OperativePortal({
                             type="file"
                             accept="image/*"
                             capture="environment"
-                            onChange={(e) =>
-                              setReceipt(e.target.files?.[0] || null)
-                            }
+                            multiple
+                            onChange={(e) => setExpenseReceipts(current=>[...current,...Array.from(e.target.files||[])].slice(0,10))}
                           />
                         </label>
                         <label className="receipt-option">
@@ -724,15 +748,12 @@ export function OperativePortal({
                           <input
                             type="file"
                             accept="image/*"
-                            onChange={(e) =>
-                              setReceipt(e.target.files?.[0] || null)
-                            }
+                            multiple
+                            onChange={(e) => setExpenseReceipts(current=>[...current,...Array.from(e.target.files||[])].slice(0,10))}
                           />
                         </label>
                       </div>
-                      {receipt && (
-                        <b className="receipt-selected">✓ {receipt.name}</b>
-                      )}
+                      {expenseReceipts.length>0 && <b className="receipt-selected">✓ {expenseReceipts.length} de 10 comprobantes seleccionados</b>}
                       <small>
                         Toma una foto clara donde se vean fecha, importe y
                         proveedor.
