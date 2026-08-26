@@ -21,7 +21,7 @@ const splitClientOptions=(items:Option[])=>{
   return [...result.values()].sort((a,b)=>a.name.localeCompare(b.name,"es"));
 };
 
-const statuses = ["Programado", "Confirmado", "En ruta", "Completado", "Cancelado", "Editar datos"];
+const statuses = ["Programado", "Editar datos", "En ruta", "Completado", "Cancelado"];
 
 export function ServicesManagement() {
   const [services, setServices] = useState<ServiceRow[]>([]);
