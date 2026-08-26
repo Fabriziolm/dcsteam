@@ -54,6 +54,7 @@ import {
 import { GpsLive } from "./gps-live";
 import { PwaInstall } from "./pwa-install";
 import { FuelReport } from "./fuel-report";
+import { AdminWeeklyReports } from "./admin-weekly-reports";
 import { ReportingYearPicker, ReportingYearProvider } from "./reporting-year";
 import { isSupabaseConfigured, supabase } from "../lib/supabase";
 
@@ -130,6 +131,7 @@ function Sidebar({
         ["Clientes", Buildings],
         ["Facturación", Receipt],
         ["Caja y gastos", CurrencyDollar],
+        ["Reportes semanales", ChartLineUp],
         ["Flota", Car],
         ["Marcaciones", Clock],
         ["Equipo", Users],
@@ -933,7 +935,7 @@ function Dashboard({ session }: { session: Session }) {
   const owner = role === "Administrador";
   const operationsManager = owner;
   const defaultView=owner?"Resumen":"Mi ruta";
-  const allowedViews=useMemo(()=>owner?["Resumen","Operaciones","GPS en vivo","Clientes","Facturación","Caja y gastos","Flota","Marcaciones","Equipo"]:["Mi ruta","Gastos","Mis horas","Incidencias"],[owner]);
+  const allowedViews=useMemo(()=>owner?["Resumen","Operaciones","GPS en vivo","Clientes","Facturación","Caja y gastos","Reportes semanales","Flota","Marcaciones","Equipo"]:["Mi ruta","Gastos","Mis horas","Incidencias"],[owner]);
   const viewKey=`dcs_last_view_${session.user.id}_${role}`;
   const [view, setView] = useState(defaultView);
   const [showGuide,setShowGuide]=useState(false);
@@ -983,6 +985,8 @@ function Dashboard({ session }: { session: Session }) {
       <ClientsManagement />
     ) : owner && view === "Caja y gastos" ? (
       <ExpensesManagement />
+    ) : owner && view === "Reportes semanales" ? (
+      <AdminWeeklyReports />
     ) : owner && view === "Flota" ? (
       <FleetManagement />
     ) : owner ? (
