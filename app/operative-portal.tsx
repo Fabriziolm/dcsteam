@@ -293,6 +293,13 @@ export function OperativePortal({
       const proposedTime=form.correction_type==="Reabrir"?null:new Date(form.correction_time).toISOString();
       result=await supabase.from("attendance_correction_requests").insert({time_entry_id:shift.id,user_id:session.user.id,correction_type:form.correction_type,proposed_time:proposedTime,reason:form.description.trim(),original_clock_in:shift.clock_in,original_clock_out:shift.clock_out});
     } else if (action === "attendance") {
+      if (role === "Chofer") {
+        const odometer = Number(form.km);
+        if (!form.vehicle_id) { setError("Selecciona la unidad antes de marcar."); setSaving(false); return; }
+        if (!Number.isFinite(odometer) || odometer < 0) { setError("Ingresa el KM del tablero para registrar la marcación."); setSaving(false); return; }
+        const odometerResult = await supabase.rpc("record_vehicle_odometer", { target_vehicle_id: form.vehicle_id, odometer });
+        if (odometerResult.error) { setError(`No se pudo guardar el kilometraje: ${odometerResult.error.message}`); setSaving(false); return; }
+      }
       if (!receipt) { setError("Debes tomar una foto para registrar la marcación."); setSaving(false); return; }
       let position: GeolocationPosition;
       try { position = await currentPosition(); } catch { setError("Activa el permiso de ubicación del navegador e inténtalo nuevamente."); setSaving(false); return; }
@@ -621,7 +628,7 @@ export function OperativePortal({
                 {action === "finding"&&<label>Unidad<select required value={form.vehicle_id} onChange={e=>setForm({...form,vehicle_id:e.target.value})}><option value="">Seleccionar unidad</option>{fleetVehicles.map(vehicle=><option key={vehicle.id} value={vehicle.id}>{vehicle.name} · {vehicle.plate}</option>)}</select></label>}
                 {action === "attendance" && <div className="attendance-proof"><MapPin size={25}/><div><strong>Ubicación obligatoria</strong><p>Al guardar solicitaremos tu ubicación GPS exacta.</p></div><div className="receipt-picker"><strong>Foto tomada ahora</strong><AttendanceCamera file={receipt} onCapture={setReceipt}/></div></div>}
                 {action === "attendance-correction"&&<><div className="attendance-correction-note"><WarningCircle size={20}/><p>La marcación original no se elimina. Administración revisará esta solicitud y quedará registrada en la auditoría.</p></div><label>¿Qué deseas corregir?<select value={form.correction_type} onChange={e=>setForm({...form,correction_type:e.target.value})}><option>Entrada</option><option>Salida</option>{shift?.clock_out&&<option>Reabrir</option>}</select></label>{form.correction_type!=="Reabrir"&&<label>Hora correcta<input type="datetime-local" required value={form.correction_time} onChange={e=>setForm({...form,correction_time:e.target.value})}/></label>}<label>Motivo<textarea required minLength={8} value={form.description} onChange={e=>setForm({...form,description:e.target.value})} placeholder="Explica qué marcaste por error y cuál es la corrección…"/></label></>}
-                {(action === "km" || action === "progress") && (
+                {(action === "km" || action === "progress" || (action === "attendance" && role === "Chofer")) && (
                   <label>
                     Kilometraje actual
                     <input
