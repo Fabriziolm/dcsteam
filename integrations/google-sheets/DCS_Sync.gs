@@ -12,7 +12,7 @@ function syncDcs(){
   const url=props.getProperty("SYNC_URL"),secret=props.getProperty("SYNC_SECRET");
   if(!url||!secret)throw new Error("Configura SYNC_URL y SYNC_SECRET en Propiedades del script.");
   const cashData=readCashData();
-  const payload={services:readServices(),invoices:readInvoices(),cash:cashData.movements,cashBalances:cashData.balances};
+  const payload={services:readServices(),invoices:readInvoices(),cash:cashData.movements,cashBalances:cashData.balances,workHours:readWorkHours()};
   const response=UrlFetchApp.fetch(url,{method:"post",contentType:"application/json",headers:{"x-sync-secret":secret},payload:JSON.stringify(payload),muteHttpExceptions:true});
   if(response.getResponseCode()>=300)throw new Error(response.getContentText());
   console.log(response.getContentText());
@@ -48,6 +48,26 @@ function readCashData(){
   });
   return{movements:movements.filter(r=>r.date&&r.amount>0),balances};
 }
+function readWorkHours(){
+  const sh=SpreadsheetApp.openById(SOURCES.transport).getSheetByName("Resumen");
+  const values=sh.getRange(1,1,sh.getLastRow(),15).getDisplayValues(),rows=[];
+  values.forEach((r,i)=>{
+    [[9,"Lolo"],[12,"Nico"]].forEach(([column,worker])=>{
+      const header=text(r[column]),match=header.match(/HORAS\s+SEMANA\s+(\d{1,2})-(\d{1,2})-(\d{2,4})/i);
+      if(!match)return;
+      let raw="",minutes=null;
+      for(let offset=1;offset<=3&&i+offset<values.length;offset++){
+        raw=text(values[i+offset][column]);minutes=hourMinutes(raw);if(minutes!=null)break;
+      }
+      if(minutes==null)return;
+      const year=Number(match[3])<100?2000+Number(match[3]):Number(match[3]);
+      const weekStart=Utilities.formatString("%04d-%02d-%02d",year,Number(match[2]),Number(match[1]));
+      rows.push({sourceKey:`work-hours:${weekStart}:${worker.toLowerCase()}`,weekStart,worker,minutes,sourceValue:raw});
+    });
+  });
+  return rows;
+}
+function hourMinutes(v){const match=text(v).toLowerCase().match(/^(\d+)\s*h(?:rs?)?\s*(\d+)?/);return match?Number(match[1])*60+Number(match[2]||0):null}
 function text(v){return v==null?"":String(v).trim()}
 function num(v){if(v===""||v==null)return null;const n=Number(String(v).replace(/[^0-9.-]/g,""));return isNaN(n)?null:n}
 function isoDate(v){if(!(v instanceof Date)||isNaN(v))return "";return Utilities.formatDate(v,"America/Lima","yyyy-MM-dd")}

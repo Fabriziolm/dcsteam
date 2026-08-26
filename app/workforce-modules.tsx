@@ -35,6 +35,7 @@ type Entry = {
   notes: string | null;
 };
 type Holiday = { holiday_date:string; name:string; credited_hours:number };
+type ImportedWorkHour = { id:string; user_id:string|null; worker_label:string; week_start:string; worked_minutes:number; source_value:string|null };
 type Profile = {
   id: string;
   full_name: string | null;
@@ -256,6 +257,7 @@ export function FindingsManagement({
 export function HoursManagement({role}:{role:"Chofer"|"Auxiliar"}) {
   const [rows, setRows] = useState<Entry[]>([]),
     [holidays,setHolidays]=useState<Holiday[]>([]),
+    [importedHours,setImportedHours]=useState<ImportedWorkHour[]>([]),
     [loading, setLoading] = useState(true),
     [error, setError] = useState("");
   useEffect(() => {
@@ -263,9 +265,10 @@ export function HoursManagement({role}:{role:"Chofer"|"Auxiliar"}) {
     void Promise.all([
       supabase.from("time_entries").select("id,work_date,clock_in,clock_out,break_minutes,status,notes").order("work_date", { ascending: false }).limit(100),
       supabase.from("holidays").select("holiday_date,name,credited_hours").eq("active",true),
-    ]).then(([r,h]) => {
-        if (r.error||h.error) setError(r.error?.message||h.error?.message||"No se pudo calcular la semana.");
-        else {setRows((r.data || []) as Entry[]);setHolidays((h.data||[]) as Holiday[]);}
+      supabase.from("imported_work_hours").select("id,user_id,worker_label,week_start,worked_minutes,source_value").order("week_start",{ascending:false}),
+    ]).then(([r,h,imported]) => {
+        if (r.error||h.error||imported.error) setError(r.error?.message||h.error?.message||imported.error?.message||"No se pudo calcular la semana.");
+        else {setRows((r.data || []) as Entry[]);setHolidays((h.data||[]) as Holiday[]);setImportedHours((imported.data||[]) as ImportedWorkHour[]);}
         setLoading(false);
       });
   }, []);
@@ -300,6 +303,12 @@ export function HoursManagement({role}:{role:"Chofer"|"Auxiliar"}) {
     const ordinaryPay=((ordinaryMinutes+holidayMinutes)/60)*rate,extraPay=(extraMinutes/60)*rate,lunchPay=lunchDays*20;
     return {start,end,rate,ordinaryMinutes,extraMinutes,holidayMinutes,credited,ordinaryPay,extraPay,lunchDays,lunchPay,totalPay:ordinaryPay+extraPay+lunchPay};
   },[rows,holidays,role]);
+  const importedTotal=useMemo(()=>importedHours.reduce((sum,row)=>sum+row.worked_minutes,0),[importedHours]);
+  const importedMonths=useMemo(()=>{
+    const months=new Map<string,{minutes:number;weeks:number}>();
+    importedHours.forEach(row=>{const key=row.week_start.slice(0,7),current=months.get(key)||{minutes:0,weeks:0};current.minutes+=row.worked_minutes;current.weeks+=1;months.set(key,current)});
+    return [...months.entries()].sort(([a],[b])=>b.localeCompare(a));
+  },[importedHours]);
   return (
     <main className="content">
       <section className="welcome">
@@ -316,6 +325,11 @@ export function HoursManagement({role}:{role:"Chofer"|"Auxiliar"}) {
         </div>
       )}
       <section className="metrics-grid compact">
+        <article className="metric purple">
+          <span>Histórico desde marzo</span>
+          <strong>{Math.floor(importedTotal/60)}h {importedTotal%60}m</strong>
+          <small>{importedHours.length} semanas importadas de Google Sheets</small>
+        </article>
         <article className="metric blue">
           <span>Horas registradas</span>
           <strong>
@@ -342,6 +356,10 @@ export function HoursManagement({role}:{role:"Chofer"|"Auxiliar"}) {
           <strong>S/ {weekly.totalPay.toFixed(2)}</strong>
           <small>Tarifa referencial: S/ {weekly.rate.toFixed(2)} por hora</small>
         </article>
+      </section>
+      <section className="panel data-panel">
+        <div className="panel-title"><div><span>HISTÓRICO IMPORTADO</span><h3>Horas semanales desde marzo</h3></div><b className="status green-status">Google Sheets</b></div>
+        {importedHours.length===0?<div className="empty-state">Aún no hay horas históricas sincronizadas.</div>:<><div className="report-summary">{importedMonths.map(([month,value])=><div key={month}><span>{new Date(`${month}-02T12:00:00`).toLocaleDateString("es-PE",{month:"long",year:"numeric"})}</span><strong>{Math.floor(value.minutes/60)}h {value.minutes%60}m</strong><small>{value.weeks} semanas</small></div>)}</div><div className="table-scroll"><table className="data-table"><thead><tr><th>Semana</th><th>Horas</th><th>Fuente</th></tr></thead><tbody>{importedHours.map(row=><tr key={row.id}><td>{row.week_start}</td><td><strong>{Math.floor(row.worked_minutes/60)}h {row.worked_minutes%60}m</strong></td><td>{row.source_value||"Google Sheets"}</td></tr>)}</tbody></table></div></>}
       </section>
       <section className="panel weekly-pay-detail">
         <div className="panel-title"><div><span>ESTIMACIÓN SEMANAL</span><h3>{weekly.start} al {weekly.end}</h3></div><b className="status blue-status">Referencial</b></div>
