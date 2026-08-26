@@ -54,7 +54,7 @@ import {
 import { GpsLive } from "./gps-live";
 import { PwaInstall } from "./pwa-install";
 import { FuelReport } from "./fuel-report";
-import { AdminWeeklyOperations, AdminWeeklyReports, WorkerWeeklyServiceSummary } from "./admin-weekly-reports";
+import { AdminDailyClientMetrics, AdminWeeklyOperations, AdminWeeklyReports, WorkerDailyClientMetrics, WorkerWeeklyServiceSummary } from "./admin-weekly-reports";
 import { ReportingYearPicker, ReportingYearProvider } from "./reporting-year";
 import { isSupabaseConfigured, supabase } from "../lib/supabase";
 
@@ -972,7 +972,7 @@ function Dashboard({ session }: { session: Session }) {
     ) : view === "Incidencias" ? (
       <FindingsManagement canManage={operationsManager} />
     ) : !operationsManager && view === "Mis horas" ? (
-      <><WorkerWeeklyServiceSummary/><HoursManagement role={role as "Chofer" | "Auxiliar"} /></>
+      <><WorkerWeeklyServiceSummary/><WorkerDailyClientMetrics/><HoursManagement role={role as "Chofer" | "Auxiliar"} /></>
     ) : !operationsManager && view === "Gastos" ? (
       <OperativePortal
         role={role as "Chofer" | "Auxiliar"}
@@ -986,7 +986,7 @@ function Dashboard({ session }: { session: Session }) {
     ) : owner && view === "Caja y gastos" ? (
       <ExpensesManagement />
     ) : owner && view === "Reportes semanales" ? (
-      <><AdminWeeklyOperations/><AdminWeeklyReports /></>
+      <><AdminWeeklyOperations/><AdminDailyClientMetrics/><AdminWeeklyReports /></>
     ) : owner && view === "Flota" ? (
       <FleetManagement />
     ) : owner ? (
