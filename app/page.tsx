@@ -45,6 +45,7 @@ import {
 } from "./admin-modules";
 import { LiveOwnerDashboard } from "./owner-dashboard";
 import {
+  AdminWorkHoursReport,
   AttendanceManagement,
   FindingsManagement,
   HoursManagement,
@@ -961,7 +962,7 @@ function Dashboard({ session }: { session: Session }) {
     owner && view === "Equipo" ? (
       <TeamManagement />
     ) : owner && view === "Marcaciones" ? (
-      <AttendanceManagement />
+      <><AdminWorkHoursReport/><AttendanceManagement /></>
     ) : operationsManager && view === "Operaciones" ? (
       <ServicesManagement />
     ) : operationsManager && view === "GPS en vivo" ? (

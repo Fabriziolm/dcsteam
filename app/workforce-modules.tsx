@@ -445,6 +445,21 @@ export function HoursManagement({role}:{role:"Chofer"|"Auxiliar"}) {
   );
 }
 
+export function AdminWorkHoursReport(){
+  const {year}=useReportingYear(),range=yearRange(year);
+  const [hours,setHours]=useState<ImportedWorkHour[]>([]),[people,setPeople]=useState<Record<string,string>>({}),[worker,setWorker]=useState(""),[selected,setSelected]=useState<string[]>([]),[lunches,setLunches]=useState<Record<string,number>>({}),[role,setRole]=useState<"Chofer"|"Auxiliar">("Chofer"),[error,setError]=useState("");
+  useEffect(()=>{if(!supabase)return;void Promise.all([
+    supabase.from("imported_work_hours").select("id,user_id,worker_label,week_start,worked_minutes,source_value").gte("week_start",range.start).lte("week_start",range.end).order("week_start",{ascending:false}),
+    supabase.from("profiles").select("id,full_name,email"),
+  ]).then(([h,p])=>{if(h.error||p.error)setError(h.error?.message||p.error?.message||"No se pudo cargar el reporte.");else{const loaded=(h.data||[]) as ImportedWorkHour[],names=Object.fromEntries((p.data||[]).map(item=>[item.id,item.full_name||item.email||"Trabajador"]));setHours(loaded);setPeople(names);setWorker(current=>current||loaded.find(item=>item.user_id)?.user_id||"")}})},[range.start,range.end]);
+  const workers=useMemo(()=>[...new Set(hours.map(row=>row.user_id).filter((id):id is string=>Boolean(id)))],[hours]);
+  const workerHours=useMemo(()=>hours.filter(row=>row.user_id===worker),[hours,worker]);
+  useEffect(()=>{setSelected(workerHours.slice(0,4).map(row=>row.id));setLunches({})},[worker,workerHours.length]);
+  const minutes=workerHours.filter(row=>selected.includes(row.id)).reduce((sum,row)=>sum+row.worked_minutes,0),lunchCount=selected.reduce((sum,id)=>sum+(lunches[id]||0),0),rate=role==="Chofer"?10.41:6.77,basePay=minutes/60*rate,lunchPay=lunchCount*20,totalPay=basePay+lunchPay;
+  const toggle=(id:string)=>setSelected(current=>current.includes(id)?current.filter(value=>value!==id):current.length<4?[...current,id]:current);
+  return <section className="panel admin-hours-report"><div className="panel-title"><div><span>REPORTE DE HORAS Y SUELDO</span><h3>Cálculo semanal del personal</h3></div><b className="status blue-status">Hasta 4 semanas</b></div>{error&&<div className="module-error"><WarningCircle size={20}/>{error}</div>}<div className="admin-hours-controls"><label>Trabajador<select value={worker} onChange={event=>setWorker(event.target.value)}>{workers.map(id=><option value={id} key={id}>{people[id]||hours.find(row=>row.user_id===id)?.worker_label||"Trabajador"}</option>)}</select></label><label>Cargo<select value={role} onChange={event=>setRole(event.target.value as "Chofer"|"Auxiliar")}><option>Chofer</option><option>Auxiliar</option></select></label></div><div className="report-summary"><div><span>Horas seleccionadas</span><strong>{Math.floor(minutes/60)}h {minutes%60}m</strong></div><div><span>Pago base · S/ {rate.toFixed(2)}/h</span><strong>S/ {basePay.toFixed(2)}</strong></div><div><span>{lunchCount} almuerzos</span><strong>S/ {lunchPay.toFixed(2)}</strong></div><div><span>Total calculado</span><strong>S/ {totalPay.toFixed(2)}</strong></div></div><div className="week-options admin-week-options">{workerHours.map(row=>{const checked=selected.includes(row.id);return <label className={checked?"selected":""} key={row.id}><input type="checkbox" checked={checked} disabled={!checked&&selected.length>=4} onChange={()=>toggle(row.id)}/><span>Semana del {new Date(`${row.week_start}T12:00:00`).toLocaleDateString("es-PE",{day:"2-digit",month:"short",year:"numeric"})}</span><strong>{Math.floor(row.worked_minutes/60)}h {row.worked_minutes%60}m</strong>{checked&&<span className="lunch-count">Almuerzos <input type="number" min="0" max="6" value={lunches[row.id]||0} onClick={event=>event.stopPropagation()} onChange={event=>setLunches(current=>({...current,[row.id]:Math.min(6,Math.max(0,Number(event.target.value)||0))}))}/></span>}</label>})}</div></section>
+}
+
 export function TeamDirectory() {
   const [rows, setRows] = useState<Profile[]>([]),
     [loading, setLoading] = useState(true),
