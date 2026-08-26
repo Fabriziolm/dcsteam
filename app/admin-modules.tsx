@@ -14,6 +14,9 @@ import { FormEvent, useCallback, useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
 import { useReportingYear, yearRange } from "./reporting-year";
 
+const monthOptions=["01","02","03","04","05","06","07","08","09","10","11","12"];
+const periodForMonth=(year:number,month:string,yearPeriod:{start:string;end:string})=>month==="all"?yearPeriod:{start:`${year}-${month}-01`,end:new Date(year,Number(month),0).toISOString().slice(0,10)};
+
 type Client = { id: string; name: string };
 type BillableService = {
   id: string;
@@ -85,6 +88,8 @@ function Notice({ error, message }: { error: string; message: string }) {
 
 export function BillingManagement() {
   const {year}=useReportingYear(),range=yearRange(year);
+  const [month,setMonth]=useState(()=>new Date().getFullYear()===year?String(new Date().getMonth()+1).padStart(2,"0"):"all");
+  const period=periodForMonth(year,month,range);
   const [rows, setRows] = useState<Invoice[]>([]),
     [clients, setClients] = useState<Client[]>([]),
     [billableServices, setBillableServices] = useState<BillableService[]>([]);
@@ -111,8 +116,8 @@ export function BillingManagement() {
         .select(
           "id,invoice_number,issue_date,amount_with_tax,paid_amount,status,concept,clients(name)",
         )
-        .gte("issue_date",range.start)
-        .lte("issue_date",range.end)
+        .gte("issue_date",period.start)
+        .lte("issue_date",period.end)
         .order("issue_date", { ascending: false })
         .limit(100),
       supabase
@@ -125,8 +130,8 @@ export function BillingManagement() {
         .select("id,service_date,merchandise,origin,destination,client_id,clients(name),vehicles(plate)")
         .eq("status", "Completado")
         .eq("invoiced", false)
-        .gte("service_date",range.start)
-        .lte("service_date",range.end)
+        .gte("service_date",period.start)
+        .lte("service_date",period.end)
         .order("service_date", { ascending: false }),
     ]);
     if (a.error || b.error || c.error)
@@ -137,7 +142,7 @@ export function BillingManagement() {
       setBillableServices((c.data || []) as unknown as BillableService[]);
     }
     setLoading(false);
-  }, [range.start,range.end]);
+  }, [period.start,period.end]);
   useEffect(() => {
     void load();
     if (!supabase) return;
@@ -203,6 +208,7 @@ export function BillingManagement() {
         </button>
       </section>
       <Notice error={error} message={message} />
+      <section className="panel billing-period-filter"><label>Periodo de facturación<select value={month} onChange={event=>setMonth(event.target.value)}><option value="all">Todo el año {year}</option>{monthOptions.map(value=><option value={value} key={value}>{new Date(2000,Number(value)-1,1).toLocaleDateString("es-PE",{month:"long"})} {year}</option>)}</select></label></section>
       <section className="metrics-grid compact">
         <article className="metric blue">
           <span>Total registrado</span>
@@ -392,6 +398,8 @@ function DataTable({
 
 export function ExpensesManagement() {
   const {year}=useReportingYear(),range=yearRange(year);
+  const [month,setMonth]=useState(()=>new Date().getFullYear()===year?String(new Date().getMonth()+1).padStart(2,"0"):"all");
+  const period=periodForMonth(year,month,range);
   const [rows, setRows] = useState<Expense[]>([]),
     [cashRows, setCashRows] = useState<CashMovement[]>([]),
     [cashOpening, setCashOpening] = useState<{balance_date:string;balance:number}|null>(null),
@@ -404,14 +412,14 @@ export function ExpensesManagement() {
     if (!supabase) return;
     setLoading(true);
     const [r,cash,balance] = await Promise.all([
-      supabase.from("expenses").select("id,expense_date,category,concept,amount,status,receipt_url,vehicles(name,plate),clients(name)").eq("source_system", "dcs_app").gte("expense_date",range.start).lte("expense_date",range.end).order("expense_date", { ascending: false }).limit(500),
-      supabase.from("cash_movements").select("id,movement_date,movement_type,concept,amount,updated_at").gte("movement_date",range.start).lte("movement_date",range.end).order("movement_date", { ascending: false }).limit(1500),
-      supabase.from("cash_balance_snapshots").select("balance_date,balance").lte("balance_date",range.end).order("balance_date",{ascending:false}).limit(1).maybeSingle(),
+      supabase.from("expenses").select("id,expense_date,category,concept,amount,status,receipt_url,vehicles(name,plate),clients(name)").eq("source_system", "dcs_app").gte("expense_date",period.start).lte("expense_date",period.end).order("expense_date", { ascending: false }).limit(500),
+      supabase.from("cash_movements").select("id,movement_date,movement_type,concept,amount,updated_at").gte("movement_date",period.start).lte("movement_date",period.end).order("movement_date", { ascending: false }).limit(1500),
+      supabase.from("cash_balance_snapshots").select("balance_date,balance").lte("balance_date",period.end).order("balance_date",{ascending:false}).limit(1).maybeSingle(),
     ]);
     if (r.error || cash.error || balance.error) setError(r.error?.message || cash.error?.message || balance.error?.message || "No se pudo cargar caja.");
     else { setRows((r.data || []) as unknown as Expense[]); setCashRows((cash.data || []) as CashMovement[]); setCashOpening(balance.data as {balance_date:string;balance:number}|null); }
     setLoading(false);
-  }, [range.start,range.end]);
+  }, [period.start,period.end]);
   useEffect(() => {
     void load();
     if (!supabase) return;
@@ -586,9 +594,10 @@ export function ExpensesManagement() {
         </button>
       </section>
       <Notice error={error} message={message} />
+      <section className="panel billing-period-filter"><label>Periodo de caja<select value={month} onChange={event=>setMonth(event.target.value)}><option value="all">Todo el año {year}</option>{monthOptions.map(value=><option value={value} key={value}>{new Date(2000,Number(value)-1,1).toLocaleDateString("es-PE",{month:"long"})} {year}</option>)}</select></label></section>
       <section className="metrics-grid compact">
-        <article className="metric green"><span>Ingresos del Sheet</span><strong>S/ {sheetIncome.toLocaleString("es-PE",{minimumFractionDigits:2})}</strong></article>
-        <article className="metric amber"><span>Egresos del Sheet</span><strong>S/ {sheetExpense.toLocaleString("es-PE",{minimumFractionDigits:2})}</strong></article>
+        <article className="metric green"><span>Entradas registradas</span><strong>S/ {sheetIncome.toLocaleString("es-PE",{minimumFractionDigits:2})}</strong></article>
+        <article className="metric amber"><span>Salidas registradas</span><strong>S/ {sheetExpense.toLocaleString("es-PE",{minimumFractionDigits:2})}</strong></article>
         <article className="metric blue"><span>Importe total en caja</span><strong>S/ {sheetBalance.toLocaleString("es-PE",{minimumFractionDigits:2})}</strong><small>{cashOpening?`Cierre ${cashOpening.balance_date} + movimientos posteriores`:"Entradas menos salidas del periodo"}</small></article>
       </section>
       <section className="panel data-panel"><div className="panel-title"><div><span>FUENTE: GOOGLE SHEETS</span><h3>Entradas y salidas sincronizadas</h3></div><b className="status green-status">Solo lectura</b></div><div className="table-scroll"><table className="data-table"><thead><tr><th>Fecha</th><th>Movimiento</th><th>Concepto</th><th>Importe</th></tr></thead><tbody>{cashRows.slice(0,150).map(row=><tr key={row.id}><td>{row.movement_date}</td><td><b className={`status ${row.movement_type==="Ingreso"?"green-status":"amber-status"}`}>{row.movement_type}</b></td><td>{row.concept}</td><td>S/ {Number(row.amount).toFixed(2)}</td></tr>)}</tbody></table></div></section>

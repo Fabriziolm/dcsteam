@@ -75,3 +75,4 @@
 .gps-route-summary>a,.gps-route-summary>button{display:inline-flex;align-items:center;gap:8px;text-decoration:none}
 .gps-route-buttons{display:flex;align-items:center;gap:8px}.gps-route-buttons>a,.gps-route-buttons>button{display:inline-flex;align-items:center;gap:8px;text-decoration:none}
 @media(max-width:700px){.gps-route-summary,.gps-route-buttons{align-items:stretch;flex-direction:column}.gps-route-summary>a,.gps-route-summary>button,.gps-route-buttons>a,.gps-route-buttons>button{justify-content:center}.gps-route-points>label{grid-template-columns:auto 28px 1fr}.gps-route-points>label>i{display:none}}
+.billing-period-filter{display:flex;justify-content:flex-end;margin-bottom:16px}.billing-period-filter label{display:grid;gap:5px;min-width:230px;font-size:.78rem;font-weight:700;color:var(--muted)}

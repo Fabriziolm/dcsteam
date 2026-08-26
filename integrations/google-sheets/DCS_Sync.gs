@@ -69,8 +69,29 @@ function readWorkHours(){
 }
 function hourMinutes(v){const match=text(v).toLowerCase().match(/^(\d+)\s*h(?:rs?)?\s*(\d+)?/);return match?Number(match[1])*60+Number(match[2]||0):null}
 function text(v){return v==null?"":String(v).trim()}
-function num(v){if(v===""||v==null)return null;const n=Number(String(v).replace(/[^0-9.-]/g,""));return isNaN(n)?null:n}
-function isoDate(v){if(!(v instanceof Date)||isNaN(v))return "";return Utilities.formatDate(v,"America/Lima","yyyy-MM-dd")}
+function num(v){
+  if(v===""||v==null)return null;
+  if(typeof v==="number")return isNaN(v)?null:v;
+  let raw=text(v).replace(/[^0-9,.-]/g,"");
+  if(!raw)return null;
+  const lastComma=raw.lastIndexOf(","),lastDot=raw.lastIndexOf(".");
+  if(lastComma>=0&&lastDot>=0){
+    if(lastComma>lastDot)raw=raw.replace(/\./g,"").replace(",",".");
+    else raw=raw.replace(/,/g,"");
+  }else if(lastComma>=0){
+    const decimals=raw.length-lastComma-1;
+    raw=decimals<=2?raw.replace(",","."):raw.replace(/,/g,"");
+  }
+  const n=Number(raw);return isNaN(n)?null:n;
+}
+function isoDate(v){
+  if(v instanceof Date&&!isNaN(v))return Utilities.formatDate(v,"America/Lima","yyyy-MM-dd");
+  if(typeof v==="number"&&!isNaN(v))return Utilities.formatDate(new Date(Math.round((v-25569)*86400000)),"America/Lima","yyyy-MM-dd");
+  const raw=text(v);if(!raw)return "";
+  let match=raw.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{2,4})$/);
+  if(match){const year=Number(match[3])<100?2000+Number(match[3]):Number(match[3]);return Utilities.formatString("%04d-%02d-%02d",year,Number(match[2]),Number(match[1]))}
+  const parsed=new Date(raw);return isNaN(parsed)?"":Utilities.formatDate(parsed,"America/Lima","yyyy-MM-dd");
+}
 function isoTime(v){if(!(v instanceof Date)||isNaN(v))return null;return Utilities.formatDate(v,"America/Lima","HH:mm:ss")}
 function category(v){const s=v.toLowerCase();if(s.includes("gasolina"))return"Gasolina";if(/\bgas\b|glp/.test(s))return"GLP";if(s.includes("peaje"))return"Peaje";if(s.includes("estacion"))return"Estacionamiento";if(s.includes("manten"))return"Mantenimiento";if(s.includes("pago"))return"Pago personal";if(s.includes("impuesto")||s.includes("sunat"))return"Impuesto";return"Otro"}
 
