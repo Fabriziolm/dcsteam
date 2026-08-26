@@ -139,6 +139,8 @@ export function ServicesManagement() {
   }
 
   return (
+    <>
+    <section className="destination-text-entry panel"><label>Nombre o dirección del establecimiento<input type="text" value={form.destination} onChange={(e) => setForm({ ...form, destination: e.target.value })} placeholder="Ej. Tienda Thaniyay - Av. Arequipa 1250" /></label><small>Escribe el nombre o dirección; las coordenadas son opcionales.</small></section>
     <main className="content">
       <section className="welcome"><div><span className="live-dot">OPERACIÓN EN TIEMPO REAL</span><h2>Servicios y asignaciones</h2><p>Programa rutas, asigna personal y controla el avance de cada servicio.</p></div><button className="primary" onClick={() => setShowForm(!showForm)}><Plus size={19} />{showForm ? "Cerrar formulario" : "Nuevo servicio"}</button></section>
       {error && <div className="module-error"><WarningCircle size={20} />{error}</div>}
@@ -147,5 +149,6 @@ export function ServicesManagement() {
       <section className="panel operations-list"><div className="panel-title"><div><span>AGENDA OPERATIVA</span><h3>Últimos servicios</h3></div><button disabled={loading} onClick={() => void loadData()}>{loading ? "Actualizando…" : "Actualizar"}</button></div>{loading ? <div className="empty-state"><SpinnerGap className="spin" size={28} /> Cargando servicios…</div> : services.length === 0 ? <div className="empty-state"><CalendarCheck size={32} /> Aún no existen servicios. Crea el primero.</div> : services.map((service) => <article className="operation-row" key={service.id}><div className="operation-date"><strong>{new Date(`${service.service_date}T12:00:00`).toLocaleDateString("es-PE", { day: "2-digit", month: "short" })}</strong><span>{service.scheduled_start?.slice(0,5) || "—"}</span></div><div className="operation-main"><strong>{service.clients?.name ?? "Cliente sin asignar"}</strong><span><MapPin size={14} />{service.origin || "Origen pendiente"} → {service.destination || "Destino pendiente"}</span><span><Car size={14} />{service.vehicles ? `${service.vehicles.name} · ${service.vehicles.plate}` : "Unidad pendiente"}</span></div><div className="operation-cargo"><span>{service.merchandise || "Sin detalle de mercadería"}</span></div><select className="status-select" disabled={updatingId === service.id} value={service.status} onChange={(e) => void updateStatus(service.id, e.target.value)}>{statuses.map((status) => <option key={status}>{status}</option>)}</select></article>)}</section>
       <div className="service-edit-list">{services.map((service) => <button type="button" key={`edit-${service.id}`} onClick={() => editService(service)}><PencilSimple size={14} /> Editar {service.destination || "servicio"}</button>)}</div>
     </main>
+    </>
   );
 }
