@@ -65,6 +65,17 @@ export function ServicesManagement() {
     return () => { void client.removeChannel(channel); };
   }, [loadData]);
 
+  useEffect(() => {
+    const addDestinationPrompt = (event: MouseEvent) => {
+      const target = event.target as HTMLElement;
+      if (!target.closest(".add-destination")) return;
+      const value = window.prompt("Nombre o dirección del siguiente establecimiento", "");
+      if (value?.trim()) setForm((current) => ({ ...current, destination: current.destination ? `${current.destination}\n${value.trim()}` : value.trim() }));
+    };
+    document.addEventListener("click", addDestinationPrompt, true);
+    return () => document.removeEventListener("click", addDestinationPrompt, true);
+  }, []);
+
   async function createService(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!supabase) return;
