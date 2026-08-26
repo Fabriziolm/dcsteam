@@ -49,7 +49,7 @@ export function ServicesManagement() {
     const firstError = serviceResult.error || clientResult.error || vehicleResult.error || staffResult.error;
     if (firstError) setError(`No se pudieron cargar las operaciones: ${firstError.message}`);
     else {
-      setServices((serviceResult.data ?? []) as unknown as ServiceRow[]);
+      setServices(([...(serviceResult.data ?? [])] as unknown as ServiceRow[]).sort((a,b)=>{const todayMs=new Date(`${new Date().toISOString().slice(0,10)}T00:00:00`).getTime(),aMs=new Date(`${a.service_date}T00:00:00`).getTime(),bMs=new Date(`${b.service_date}T00:00:00`).getTime(),aFuture=aMs>=todayMs,bFuture=bMs>=todayMs;return aFuture!==bFuture?(aFuture?-1:1):(aFuture?aMs-bMs:bMs-aMs)}));
       setClients(splitClientOptions((clientResult.data ?? []) as Option[]));
       setVehicles((vehicleResult.data ?? []) as Array<Option & { plate: string }>);
       setStaff((staffResult.data ?? []) as Staff[]);
