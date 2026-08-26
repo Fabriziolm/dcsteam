@@ -54,7 +54,7 @@ import {
 import { GpsLive } from "./gps-live";
 import { PwaInstall } from "./pwa-install";
 import { FuelReport } from "./fuel-report";
-import { AdminDailyClientMetrics, AdminWeeklyOperations, AdminWeeklyReports, WorkerDailyClientMetrics, WorkerWeeklyServiceSummary } from "./admin-weekly-reports";
+import { AdminDailyClientMetrics, AdminGrowthFindingsObjectives, AdminWeeklyOperations, AdminWeeklyReports, WorkerDailyClientMetrics, WorkerWeeklyServiceSummary } from "./admin-weekly-reports";
 import { ReportingYearPicker, ReportingYearProvider } from "./reporting-year";
 import { isSupabaseConfigured, supabase } from "../lib/supabase";
 
@@ -986,7 +986,7 @@ function Dashboard({ session }: { session: Session }) {
     ) : owner && view === "Caja y gastos" ? (
       <ExpensesManagement />
     ) : owner && view === "Reportes semanales" ? (
-      <><AdminWeeklyOperations/><AdminDailyClientMetrics/><AdminWeeklyReports /></>
+      <><AdminGrowthFindingsObjectives/><AdminWeeklyOperations/><AdminDailyClientMetrics/><AdminWeeklyReports /></>
     ) : owner && view === "Flota" ? (
       <FleetManagement />
     ) : owner ? (
