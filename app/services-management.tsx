@@ -41,7 +41,7 @@ export function ServicesManagement() {
     if (!supabase) return;
     setLoading(true); setError("");
     const [serviceResult, clientResult, vehicleResult, staffResult] = await Promise.all([
-      supabase.from("services").select("id,service_date,created_at,merchandise,origin,destination,scheduled_start,status,clients(name),vehicles(name,plate)").order("created_at", { ascending: false }).order("service_date", { ascending: false }).limit(100),
+      supabase.from("services").select("id,service_date,created_at,merchandise,origin,destination,scheduled_start,status,clients(name),vehicles(name,plate)").order("service_date", { ascending: false }).order("created_at", { ascending: false }).limit(500),
       supabase.from("clients").select("id,name").eq("active", true).order("name"),
       supabase.from("vehicles").select("id,name,plate").eq("active", true).order("name"),
       supabase.from("profiles").select("id,full_name,email").eq("active", true).order("full_name"),
