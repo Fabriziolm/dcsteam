@@ -80,8 +80,13 @@ export function ServicesManagement() {
     const addDestinationPrompt = (event: MouseEvent) => {
       const target = event.target as HTMLElement;
       if (!target.closest(".add-destination")) return;
-      const value = window.prompt("Nombre o dirección del siguiente establecimiento", "");
-      if (value?.trim()) setForm((current) => ({ ...current, destination: current.destination ? `${current.destination}\n${value.trim()}` : value.trim() }));
+      event.preventDefault(); event.stopImmediatePropagation();
+      const value = window.prompt("Nombre o dirección del establecimiento", "");
+      if (!value?.trim()) return;
+      const lat = window.prompt("Latitud del establecimiento (opcional)", "");
+      const lng = window.prompt("Longitud del establecimiento (opcional)", "");
+      const point = `${value.trim()}${lat?.trim() && lng?.trim() ? ` | ${lat.trim()} | ${lng.trim()}` : ""}`;
+      setForm((current) => ({ ...current, destination: current.destination ? `${current.destination}\n${point}` : point }));
     };
     document.addEventListener("click", addDestinationPrompt, true);
     return () => document.removeEventListener("click", addDestinationPrompt, true);
