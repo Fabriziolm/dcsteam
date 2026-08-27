@@ -1,7 +1,7 @@
 "use client";
 
 import { CalendarCheck, Car, CheckCircle, MapPin, PencilSimple, Plus, SpinnerGap, Users, WarningCircle } from "@phosphor-icons/react";
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "../lib/supabase";
 
 type Option = { id: string; name: string };
@@ -33,9 +33,20 @@ export function ServicesManagement() {
   const [updatingId, setUpdatingId] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const draftRestored = useRef(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [form, setForm] = useState({ service_date: new Date().toISOString().slice(0, 10), client_id: "", vehicle_id: "", merchandise: "", origin: "", destination: "", destination_lat: "", destination_lng: "", delivery_points: "1", scheduled_start: "", driver_id: "", assistant_id: "" });
+  useEffect(() => {
+    try {
+      const draft = localStorage.getItem("dcs_service_form_draft");
+      if (draft) setForm((current) => ({ ...current, ...(JSON.parse(draft) as Partial<typeof current>) }));
+    } catch { /* borrador inválido: continuar con formulario vacío */ }
+    window.setTimeout(() => { draftRestored.current = true; }, 0);
+  }, []);
+  useEffect(() => {
+    if (draftRestored.current) localStorage.setItem("dcs_service_form_draft", JSON.stringify(form));
+  }, [form]);
 
   const loadData = useCallback(async () => {
     if (!supabase) return;
@@ -121,6 +132,7 @@ export function ServicesManagement() {
       }
       setShowForm(false);
       setMessage(`${destinations.length} servicio${destinations.length === 1 ? "" : "s"} creado${destinations.length === 1 ? "" : "s"} y asignado${destinations.length === 1 ? "" : "s"} correctamente.`);
+      localStorage.removeItem("dcs_service_form_draft");
       setForm({ ...form, merchandise: "", origin: "", destination: "", destination_lat: "", destination_lng: "", delivery_points: "1", scheduled_start: "", driver_id: "", assistant_id: "" });
       await loadData();
     }
