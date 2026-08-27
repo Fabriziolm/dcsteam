@@ -40,13 +40,13 @@ export function ServicesManagement() {
   useEffect(() => {
     try {
       const draft = localStorage.getItem("dcs_service_form_draft");
-      if (draft) { const saved = JSON.parse(draft) as { form?: Partial<typeof form>; editingId?: string | null } & Partial<typeof form>; setForm((current) => ({ ...current, ...(saved.form || saved) })); if (saved.editingId) setEditingId(saved.editingId); }
+      if (draft) { const saved = JSON.parse(draft) as { form?: Partial<typeof form>; editingId?: string | null; showForm?: boolean } & Partial<typeof form>; setForm((current) => ({ ...current, ...(saved.form || saved) })); if (saved.editingId) setEditingId(saved.editingId); if (saved.showForm || saved.editingId) setShowForm(true); }
     } catch { /* borrador inválido: continuar con formulario vacío */ }
     window.setTimeout(() => { draftRestored.current = true; }, 0);
   }, []);
   useEffect(() => {
-    if (draftRestored.current) localStorage.setItem("dcs_service_form_draft", JSON.stringify({ form, editingId }));
-  }, [form, editingId]);
+    if (draftRestored.current) localStorage.setItem("dcs_service_form_draft", JSON.stringify({ form, editingId, showForm }));
+  }, [form, editingId, showForm]);
 
   const loadData = useCallback(async () => {
     if (!supabase) return;
