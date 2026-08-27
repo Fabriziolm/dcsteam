@@ -151,7 +151,6 @@ export function ServicesManagement() {
 
   return (
     <>
-    <section className="destination-text-entry panel"><label>Nombre o dirección del establecimiento<input type="text" value={form.destination} onChange={(e) => setForm({ ...form, destination: e.target.value })} placeholder="Ej. Tienda Thaniyay - Av. Arequipa 1250" /></label><small>Escribe el nombre o dirección; las coordenadas son opcionales.</small></section>
     <main className="content">
       <section className="welcome"><div><span className="live-dot">OPERACIÓN EN TIEMPO REAL</span><h2>Servicios y asignaciones</h2><p>Programa rutas, asigna personal y controla el avance de cada servicio.</p></div><button className="primary" onClick={() => setShowForm(!showForm)}><Plus size={19} />{showForm ? "Cerrar formulario" : "Nuevo servicio"}</button></section>
       {error && <div className="module-error"><WarningCircle size={20} />{error}</div>}
