@@ -83,10 +83,11 @@ export function ServicesManagement() {
       event.preventDefault(); event.stopImmediatePropagation();
       const value = window.prompt("Nombre o dirección del establecimiento", "");
       if (!value?.trim()) return;
+      setForm((current) => ({ ...current, destination: current.destination ? `${current.destination}\n${value.trim()} | ` : `${value.trim()} | ` }));
       const lat = window.prompt("Latitud del establecimiento (opcional)", "");
+      setForm((current) => ({ ...current, destination: current.destination.replace(/\|\s*$/, `| ${lat?.trim() || ""} | `) }));
       const lng = window.prompt("Longitud del establecimiento (opcional)", "");
-      const point = `${value.trim()}${lat?.trim() && lng?.trim() ? ` | ${lat.trim()} | ${lng.trim()}` : ""}`;
-      setForm((current) => ({ ...current, destination: current.destination ? `${current.destination}\n${point}` : point }));
+      setForm((current) => ({ ...current, destination: current.destination.replace(/\|\s*$/, `| ${lng?.trim() || ""}`) }));
     };
     document.addEventListener("click", addDestinationPrompt, true);
     return () => document.removeEventListener("click", addDestinationPrompt, true);
