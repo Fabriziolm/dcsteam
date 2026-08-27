@@ -40,13 +40,13 @@ export function ServicesManagement() {
   useEffect(() => {
     try {
       const draft = localStorage.getItem("dcs_service_form_draft");
-      if (draft) setForm((current) => ({ ...current, ...(JSON.parse(draft) as Partial<typeof current>) }));
+      if (draft) { const saved = JSON.parse(draft) as { form?: Partial<typeof form>; editingId?: string | null } & Partial<typeof form>; setForm((current) => ({ ...current, ...(saved.form || saved) })); if (saved.editingId) setEditingId(saved.editingId); }
     } catch { /* borrador inválido: continuar con formulario vacío */ }
     window.setTimeout(() => { draftRestored.current = true; }, 0);
   }, []);
   useEffect(() => {
-    if (draftRestored.current) localStorage.setItem("dcs_service_form_draft", JSON.stringify(form));
-  }, [form]);
+    if (draftRestored.current) localStorage.setItem("dcs_service_form_draft", JSON.stringify({ form, editingId }));
+  }, [form, editingId]);
 
   const loadData = useCallback(async () => {
     if (!supabase) return;
@@ -95,7 +95,7 @@ export function ServicesManagement() {
     if (editingId) {
       const [destination, lat, lng] = firstPoint.split("|").map((part) => part.trim());
       const { error: updateError } = await supabase.from("services").update({ service_date: form.service_date, client_id: form.client_id, vehicle_id: form.vehicle_id || null, merchandise: form.merchandise || null, origin: form.origin || null, destination, destination_lat: lat ? Number(lat) : (form.destination_lat ? Number(form.destination_lat) : null), destination_lng: lng ? Number(lng) : (form.destination_lng ? Number(form.destination_lng) : null), scheduled_start: form.scheduled_start || null, updated_at: new Date().toISOString() }).eq("id", editingId);
-      if (updateError) setError(`No se pudo actualizar: ${updateError.message}`); else { setMessage("Servicio actualizado correctamente."); setShowForm(false); setEditingId(null); await loadData(); }
+      if (updateError) setError(`No se pudo actualizar: ${updateError.message}`); else { setMessage("Servicio actualizado correctamente."); setShowForm(false); setEditingId(null); localStorage.removeItem("dcs_service_form_draft"); await loadData(); }
       setSaving(false); return;
     }
     if (form.driver_id && form.driver_id === form.assistant_id) {
