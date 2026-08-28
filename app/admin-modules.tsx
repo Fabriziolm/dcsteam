@@ -86,6 +86,14 @@ function Notice({ error, message }: { error: string; message: string }) {
   );
 }
 
+function FinancialSummary({year,month}:{year:number;month:string}){
+  const [loading,setLoading]=useState(true),[error,setError]=useState(""),[invoices,setInvoices]=useState<Array<{amount_with_tax:number;clients:{name:string}|null}>>([]),[expenses,setExpenses]=useState<Array<{amount:number;category:string;clients:{name:string}|null}>>([]);
+  const period=periodForMonth(year,month,{start:`${year}-01-01`,end:`${year}-12-31`});
+  useEffect(()=>{if(!supabase)return;setLoading(true);Promise.all([supabase.from("invoices").select("amount_with_tax,clients(name)").gte("issue_date",period.start).lte("issue_date",period.end),supabase.from("expenses").select("amount,category,clients(name)").gte("expense_date",period.start).lte("expense_date",period.end).neq("status","Rechazado")]).then(([a,b])=>{if(a.error||b.error)setError(a.error?.message||b.error?.message||"");else{setInvoices((a.data||[]) as unknown as typeof invoices);setExpenses((b.data||[]) as unknown as typeof expenses)}setLoading(false)});},[period.start,period.end]);
+  const income=new Map<string,number>(),outgo=new Map<string,number>();invoices.forEach(r=>income.set(r.clients?.name||"Sin cliente",(income.get(r.clients?.name||"Sin cliente")||0)+Number(r.amount_with_tax)));expenses.forEach(r=>outgo.set(r.category,(outgo.get(r.category)||0)+Number(r.amount)));const incomeTotal=[...income.values()].reduce((a,b)=>a+b,0),outgoTotal=[...outgo.values()].reduce((a,b)=>a+b,0);
+  return <section className="panel financial-summary"><div className="panel-title"><div><span>RESUMEN FINANCIERO</span><h3>Ingresos por cliente y egresos</h3></div><b>{month==="all"?`Año ${year}`:`${month}/${year}`}</b></div>{error&&<div className="module-error">{error}</div>}{loading?<div className="empty-state"><SpinnerGap className="spin" size={22}/>Calculando resumen…</div>:<div className="financial-summary-grid"><div><h4>Ingresos por cliente</h4>{[...income.entries()].sort((a,b)=>b[1]-a[1]).map(([name,value])=><p key={name}><span>{name}</span><strong>S/ {value.toFixed(2)}</strong></p>)}<b className="financial-total">Total ingresos: S/ {incomeTotal.toFixed(2)}</b></div><div><h4>Egresos</h4>{[...outgo.entries()].sort((a,b)=>b[1]-a[1]).map(([name,value])=><p key={name}><span>{name}</span><strong>S/ {value.toFixed(2)}</strong></p>)}<b className="financial-total">Total egresos: S/ {outgoTotal.toFixed(2)}</b></div></div>}</section>
+}
+
 export function BillingManagement() {
   const {year}=useReportingYear(),range=yearRange(year);
   const [month,setMonth]=useState(()=>new Date().getFullYear()===year?String(new Date().getMonth()+1).padStart(2,"0"):"all");
@@ -209,6 +217,7 @@ export function BillingManagement() {
       </section>
       <Notice error={error} message={message} />
       <section className="panel billing-period-filter"><label>Periodo de facturación<select value={month} onChange={event=>setMonth(event.target.value)}><option value="all">Todo el año {year}</option>{monthOptions.map(value=><option value={value} key={value}>{new Date(2000,Number(value)-1,1).toLocaleDateString("es-PE",{month:"long"})} {year}</option>)}</select></label></section>
+      <FinancialSummary year={year} month={month} />
       <section className="metrics-grid compact">
         <article className="metric blue">
           <span>Total registrado</span>
