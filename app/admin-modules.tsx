@@ -5,6 +5,7 @@ import {
   CheckCircle,
   CurrencyDollar,
   DownloadSimple,
+  Paperclip,
   Plus,
   Receipt,
   SpinnerGap,
@@ -45,8 +46,18 @@ type Invoice = {
   paid_amount: number;
   status: string;
   concept: string | null;
+  attachment_path: string | null;
+  attachment_name: string | null;
   clients: { name: string } | null;
 };
+
+function invoiceStatusTone(status: string) {
+  const normalized = status.trim().toLocaleLowerCase("es-PE");
+  if (normalized === "pagado") return "invoice-paid";
+  if (normalized === "pendiente") return "invoice-pending";
+  if (normalized === "parcial") return "invoice-partial";
+  return "invoice-neutral";
+}
 type Expense = {
   id: string;
   expense_date: string;
@@ -115,6 +126,7 @@ export function BillingManagement() {
     concept: "",
     status: "Pendiente",
   });
+  const [attachment, setAttachment] = useState<File | null>(null);
   const load = useCallback(async () => {
     if (!supabase) return;
     setLoading(true);
@@ -122,7 +134,7 @@ export function BillingManagement() {
       supabase
         .from("invoices")
         .select(
-          "id,invoice_number,issue_date,amount_with_tax,paid_amount,status,concept,clients(name)",
+          "id,invoice_number,issue_date,amount_with_tax,paid_amount,status,concept,attachment_path,attachment_name,clients(name)",
         )
         .gte("issue_date",period.start)
         .lte("issue_date",period.end)
@@ -161,6 +173,16 @@ export function BillingManagement() {
       .subscribe();
     return () => { void client.removeChannel(channel); };
   }, [load]);
+  async function openInvoiceFile(path: string) {
+    if (!supabase) return;
+    const invoiceWindow = window.open("", "_blank");
+    if (!invoiceWindow) { setError("El navegador bloqueó la ventana de la factura."); return; }
+    invoiceWindow.document.title = "Cargando factura…";
+    const { data, error: signError } = await supabase.storage.from("invoice-files").createSignedUrl(path, 300);
+    if (signError) { invoiceWindow.close(); setError(`No se pudo abrir la factura: ${signError.message}`); }
+    else { invoiceWindow.opener = null; invoiceWindow.location.href = data.signedUrl; }
+  }
+
   async function save(e: FormEvent) {
     e.preventDefault();
     if (!supabase) return;
@@ -174,9 +196,17 @@ export function BillingManagement() {
       setSaving(false);
       return;
     }
+    if (attachment) {
+      const allowed = ["application/pdf", "image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"];
+      if (!allowed.includes(attachment.type)) { setError("Adjunta un PDF o una imagen (JPG, PNG, WEBP o HEIC)."); setSaving(false); return; }
+      if (attachment.size > 15 * 1024 * 1024) { setError("La factura no puede superar 15 MB."); setSaving(false); return; }
+    }
+    const invoiceId = crypto.randomUUID();
+    const attachmentPath = attachment ? `${data.user?.id || "admin"}/${invoiceId}/${crypto.randomUUID()}-${attachment.name.replace(/[^a-zA-Z0-9._-]/g, "_")}` : null;
     const r = await supabase
       .from("invoices")
       .insert({
+        id: invoiceId,
         ...form,
         service_id: form.service_id || null,
         invoice_number: form.invoice_number.trim().toUpperCase() || null,
@@ -185,12 +215,19 @@ export function BillingManagement() {
         paid_amount: form.status === "Pagado" ? amount : 0,
         concept: form.concept.trim() || null,
         created_by: data.user?.id,
+        attachment_path: attachmentPath,
+        attachment_name: attachment?.name || null,
       });
     if (r.error) setError(r.error.code === "23505" ? "Ese número de factura o servicio ya fue registrado." : r.error.message);
     else {
+      if (attachment && attachmentPath) {
+        const upload = await supabase.storage.from("invoice-files").upload(attachmentPath, attachment, { contentType: attachment.type, upsert: false });
+        if (upload.error) { await supabase.from("invoices").delete().eq("id", invoiceId); setError(`No se pudo adjuntar la factura: ${upload.error.message}`); setSaving(false); return; }
+      }
       setMessage(form.service_id ? "Factura registrada y alerta del servicio cerrada." : "Factura registrada.");
       setShow(false);
       setForm({service_id:"",invoice_number:"",issue_date:new Date().toISOString().slice(0,10),client_id:"",amount_with_tax:"",concept:"",status:"Pendiente"});
+      setAttachment(null);
       await load();
     }
     setSaving(false);
@@ -339,6 +376,11 @@ export function BillingManagement() {
                 <option>Pagado</option>
               </select>
             </label>
+            <label className="wide">
+              Adjuntar factura
+              <input type="file" accept="application/pdf,image/*" onChange={(e) => setAttachment(e.target.files?.[0] || null)} />
+              <small className="file-help">PDF o imagen, máximo 15 MB. Se guarda de forma privada.</small>
+            </label>
           </div>
           <div className="form-actions">
             <button type="button" onClick={() => setShow(false)}>
@@ -359,6 +401,7 @@ export function BillingManagement() {
             <th>Concepto</th>
             <th>Importe</th>
             <th>Estado</th>
+            <th>Archivo</th>
           </tr>
         </thead>
         <tbody>
@@ -370,7 +413,10 @@ export function BillingManagement() {
               <td>{r.concept || "—"}</td>
               <td>S/ {Number(r.amount_with_tax).toFixed(2)}</td>
               <td>
-                <b className="table-status">{r.status}</b>
+                <b className={`table-status ${invoiceStatusTone(r.status)}`}>{r.status}</b>
+              </td>
+              <td>
+                {r.attachment_path ? <button className="receipt-link" onClick={() => void openInvoiceFile(r.attachment_path!)}><Paperclip size={14} /> Ver factura</button> : "—"}
               </td>
             </tr>
           ))}
