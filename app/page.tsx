@@ -335,6 +335,7 @@ function Header({
     billableServices: [] as Array<{
       id: string;
       service_date: string;
+      destination: string | null;
       billing_remind_at: string | null;
       clients: { name: string } | null;
       vehicles: { plate: string } | null;
