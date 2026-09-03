@@ -492,7 +492,7 @@ export function OperativePortal({
                         className="primary small"
                         onClick={() => open("progress", s)}
                       >
-                        Registrar avance
+                        Confirmar entrega de este punto
                       </button>
                     )}
                   </div>
@@ -644,7 +644,7 @@ export function OperativePortal({
                 )}
                 {action === "progress" && (
                   <label>
-                    Nuevo estado
+                    Estado de este punto
                     <select
                       value={form.status}
                       onChange={(e) =>
