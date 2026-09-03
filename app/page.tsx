@@ -18,6 +18,7 @@ import {
   ListChecks,
   MapPin,
   MagnifyingGlass,
+  NavigationArrow,
   Receipt,
   Question,
   ShieldCheck,
@@ -935,6 +936,10 @@ function OnboardingGuide({role,onNavigate,onFinish}:{role:Role;onNavigate:(view:
   return <div className="guide-backdrop"><section className="guide-card" role="dialog" aria-modal="true" aria-labelledby="guide-title"><button className="guide-close" onClick={onFinish} aria-label="Omitir guía"><X size={19}/></button><div className="guide-progress"><span style={{width:`${((index+1)/steps.length)*100}%`}}/></div><small>PASO {index+1} DE {steps.length} · {role.toUpperCase()}</small><i><Question size={30} weight="duotone"/></i><h2 id="guide-title">{step.title}</h2><p>{step.description}</p><div className="guide-actions"><button onClick={onFinish}>Omitir</button>{index>0&&<button onClick={()=>setIndex(current=>current-1)}>Anterior</button>}<button className="primary" onClick={()=>index===steps.length-1?onFinish():setIndex(current=>current+1)}>{index===steps.length-1?"Comenzar":"Siguiente"}<ArrowRight size={17}/></button></div></section></div>;
 }
 
+function DriverRouteAlert({onNavigate,onClose}:{onNavigate:(view:string)=>void;onClose:()=>void}){
+  return <div className="guide-backdrop route-alert-backdrop"><section className="guide-card route-alert-card" role="alertdialog" aria-modal="true" aria-labelledby="route-alert-title"><i><NavigationArrow size={34} weight="duotone"/></i><small>AVISO OPERATIVO · MAÑANA 03 SEP</small><h2 id="route-alert-title">Tienes una ruta DAR programada</h2><p>Antes de salir revisa los 13 puntos en tu ruta. La unidad sale de Alfa Gemelos 170, carga en el almacén DAR de Villa El Salvador y luego inicia las entregas.</p><div className="route-alert-checks"><span><CheckCircle size={16}/>DFSK BYG761</span><span><CheckCircle size={16}/>Auxiliar: Nicolas</span><span><CheckCircle size={16}/>13 destinos con dirección y coordenadas</span></div><p className="form-help">En GPS pulsa “Optimizar por cercanía”, verifica los pines y abre la ruta en Google Maps.</p><div className="guide-actions"><button onClick={onClose}>Cerrar aviso</button><button className="primary" onClick={()=>{onNavigate("Mi ruta");onClose();}}>Ir a mi ruta <ArrowRight size={17}/></button></div></section></div>;
+}
+
 function Dashboard({ session }: { session: Session }) {
   const role = roleFromSession(session);
   const owner = role === "Administrador";
@@ -944,6 +949,7 @@ function Dashboard({ session }: { session: Session }) {
   const viewKey=`dcs_last_view_${session.user.id}_${role}`;
   const [view, setView] = useState(defaultView);
   const [showGuide,setShowGuide]=useState(false);
+  const [showRouteAlert,setShowRouteAlert]=useState(false);
   const guideKey=`dcs_guide_v1_${session.user.id}_${role}`;
   const navigateView=useCallback((next:string,replace=false)=>{
     if(!allowedViews.includes(next))return;
@@ -958,6 +964,8 @@ function Dashboard({ session }: { session: Session }) {
     window.addEventListener("popstate",restore);return()=>window.removeEventListener("popstate",restore);
   },[allowedViews,defaultView,viewKey]);
   useEffect(()=>{setShowGuide(localStorage.getItem(guideKey)!=="completed")},[guideKey]);
+  useEffect(()=>{if(role!=="Chofer")return;const key=`dcs_driver_route_alert_${session.user.id}_${new Date().toISOString().slice(0,10)}`;setShowRouteAlert(localStorage.getItem(key)!=="completed")},[role,session.user.id]);
+  const closeRouteAlert=()=>{const key=`dcs_driver_route_alert_${session.user.id}_${new Date().toISOString().slice(0,10)}`;localStorage.setItem(key,"completed");setShowRouteAlert(false)};
   const finishGuide=()=>{localStorage.setItem(guideKey,"completed");setShowGuide(false)};
   const signOut = () => {
     if (!window.confirm("¿Deseas cerrar tu sesión?")) return;
@@ -1013,6 +1021,7 @@ function Dashboard({ session }: { session: Session }) {
         {content}
       </div>
       {showGuide&&<OnboardingGuide role={role} onNavigate={(next)=>navigateView(next,true)} onFinish={finishGuide}/>}
+      {showRouteAlert&&role==="Chofer"&&<DriverRouteAlert onNavigate={navigateView} onClose={closeRouteAlert}/>}
     </div></ReportingYearProvider>
   );
 }
