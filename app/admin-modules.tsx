@@ -117,6 +117,7 @@ export function BillingManagement() {
     [uploadingId, setUploadingId] = useState("");
   const [error, setError] = useState(""),
     [message, setMessage] = useState("");
+  const [clientFilter, setClientFilter] = useState("all");
   const [form, setForm] = useState({
     service_id: "",
     invoice_number: "",
@@ -198,9 +199,11 @@ export function BillingManagement() {
     else { setMessage('Factura adjuntada correctamente.'); await load(); }
     setUploadingId('');
   }
-  const total = rows.reduce((n, r) => n + Number(r.amount_with_tax), 0),
-    pending = rows
-      .filter((r) => r.status === "Pendiente" || r.status === "Parcial")
+  const invoiceClients = [...new Set(rows.map(row => row.clients?.name || "Sin cliente"))].sort((a,b)=>a.localeCompare(b,"es-PE")),
+    visibleRows = rows.filter(row => clientFilter === "all" || (row.clients?.name || "Sin cliente") === clientFilter),
+    total = visibleRows.reduce((n, r) => n + Number(r.amount_with_tax), 0),
+    pending = visibleRows
+      .filter((r) => !r.attachment_path && (r.status === "Pendiente" || r.status === "Parcial"))
       .reduce(
         (n, r) => n + Number(r.amount_with_tax) - Number(r.paid_amount),
         0,
@@ -216,7 +219,7 @@ export function BillingManagement() {
 
       </section>
       <Notice error={error} message={message} />
-      <section className="panel billing-period-filter"><label>Periodo de facturación<select value={month} onChange={event=>setMonth(event.target.value)}><option value="all">Todo el año {year}</option>{monthOptions.map(value=><option value={value} key={value}>{new Date(2000,Number(value)-1,1).toLocaleDateString("es-PE",{month:"long"})} {year}</option>)}</select></label></section>
+      <section className="panel billing-period-filter"><label>Periodo de facturación<select value={month} onChange={event=>{setMonth(event.target.value);setClientFilter("all")}}><option value="all">Todo el año {year}</option>{monthOptions.map(value=><option value={value} key={value}>{new Date(2000,Number(value)-1,1).toLocaleDateString("es-PE",{month:"long"})} {year}</option>)}</select></label><label>Cliente<select value={clientFilter} onChange={event=>setClientFilter(event.target.value)}><option value="all">Todos los clientes</option>{invoiceClients.map(name=><option value={name} key={name}>{name}</option>)}</select></label></section>
       <FinancialSummary year={year} month={month} />
       <section className="metrics-grid compact">
         <article className="metric blue">
@@ -250,7 +253,7 @@ export function BillingManagement() {
           </tr>
         </thead>
         <tbody>
-          {rows.map((r) => (
+          {visibleRows.map((r) => (
             <tr key={r.id}>
               <td>{r.issue_date || "—"}</td>
               <td>{r.invoice_number || "—"}</td>
@@ -258,7 +261,7 @@ export function BillingManagement() {
               <td>{r.concept || "—"}</td>
               <td>S/ {Number(r.amount_with_tax).toFixed(2)}</td>
               <td>
-                <b className={`table-status ${invoiceStatusTone(r.status)}`}>{r.status}</b>
+                <b className={`table-status ${invoiceStatusTone(r.attachment_path ? "Pagado" : r.status)}`}>{r.attachment_path ? "Facturado" : r.status}</b>
               </td>
               <td>
                 {r.attachment_path ? <><button className="receipt-link" onClick={() => void openInvoiceFile(r.attachment_path!)}><Paperclip size={14} /> Ver factura</button><label className="invoice-attach-replace">{uploadingId===r.id?"Subiendo…":"Reemplazar"}<input type="file" accept="application/pdf" disabled={uploadingId===r.id} onChange={event => { const file=event.target.files?.[0]; if(file) void attachInvoice(r,file); event.target.value=""; }} /></label></> : <label className="receipt-link invoice-attach-label"><Paperclip size={14} /> {uploadingId===r.id?"Subiendo…":"Adjuntar PDF"}<input type="file" accept="application/pdf" disabled={uploadingId===r.id} onChange={event => { const file=event.target.files?.[0]; if(file) void attachInvoice(r,file); event.target.value=""; }} /></label>}
