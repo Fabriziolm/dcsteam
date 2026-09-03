@@ -375,7 +375,7 @@ function Header({
             .gte("expense_date", weekDate),
           client
             .from("services")
-            .select("id,service_date,billing_remind_at,clients(name),vehicles(plate)")
+            .select("id,service_date,destination,billing_remind_at,clients(name),vehicles(plate)")
             .eq("status", "Completado")
             .eq("invoiced", false)
             .or(`billing_remind_at.is.null,billing_remind_at.lte.${new Date().toISOString()}`)
@@ -399,6 +399,7 @@ function Header({
         billableServices: (serviceResult.data ?? []) as unknown as Array<{
           id: string;
           service_date: string;
+          destination: string | null;
           billing_remind_at: string | null;
           clients: { name: string } | null;
           vehicles: { plate: string } | null;
@@ -486,13 +487,13 @@ function Header({
                   <CurrencyDollar size={18} />
                   <span>
                     <b>
-                      {notices.billableServices.length} servicios cerrados por facturar
+                      {notices.billableServices.length} entregas completadas pendientes de facturar
                     </b>
                     <small>Revisar y facturar al cierre del día.</small>
                     {notices.billableServices.slice(0, 3).map((service) => (
                       <span className="billing-alert-item" key={service.id}>
                         <small>
-                          {service.service_date} · {service.clients?.name || "Cliente pendiente"} · {service.vehicles?.plate || "Sin unidad"}
+                          {service.service_date} · Pedido entregado en {service.destination || "destino registrado"} · {service.clients?.name || "Cliente pendiente"} · {service.vehicles?.plate || "Sin unidad"}
                         </small>
                         <span>
                           <button onClick={() => void handleBillingAlert(service.id, "invoiced")}>Ya facturado</button>
