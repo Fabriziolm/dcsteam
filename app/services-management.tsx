@@ -7,7 +7,7 @@ import { supabase } from "../lib/supabase";
 type Option = { id: string; name: string };
 type Staff = { id: string; full_name: string | null; email: string | null };
 type ServiceRow = {
-  id: string; service_date: string; created_at?: string; merchandise: string | null; origin: string | null; destination: string | null;
+  id: string; client_id: string; service_date: string; created_at?: string; merchandise: string | null; origin: string | null; destination: string | null;
   scheduled_start: string | null; status: string; clients: { name: string } | null; vehicles: { name: string; plate: string } | null;
 };
 
@@ -36,6 +36,8 @@ export function ServicesManagement() {
   const draftRestored = useRef(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+  const [filterMonth, setFilterMonth] = useState("");
+  const [filterClient, setFilterClient] = useState("");
   const [form, setForm] = useState({ service_date: new Date().toISOString().slice(0, 10), client_id: "", vehicle_id: "", merchandise: "", origin: "", destination: "", destination_lat: "", destination_lng: "", delivery_points: "1", scheduled_start: "", driver_id: "", assistant_id: "" });
   useEffect(() => {
     try {
@@ -52,7 +54,7 @@ export function ServicesManagement() {
     if (!supabase) return;
     setLoading(true); setError("");
     const [serviceResult, clientResult, vehicleResult, staffResult] = await Promise.all([
-      supabase.from("services").select("id,service_date,created_at,merchandise,origin,destination,scheduled_start,status,clients(name),vehicles(name,plate)").order("service_date", { ascending: false }).order("created_at", { ascending: false }).limit(500),
+      supabase.from("services").select("id,client_id,service_date,created_at,merchandise,origin,destination,scheduled_start,status,clients(name),vehicles(name,plate)").order("service_date", { ascending: false }).order("created_at", { ascending: false }).limit(500),
       supabase.from("clients").select("id,name").eq("active", true).order("name"),
       supabase.from("vehicles").select("id,name,plate").eq("active", true).order("name"),
       supabase.from("profiles").select("id,full_name,email").eq("active", true).order("full_name"),
@@ -76,23 +78,6 @@ export function ServicesManagement() {
     return () => { void client.removeChannel(channel); };
   }, [loadData]);
 
-  useEffect(() => {
-    const addDestinationPrompt = (event: MouseEvent) => {
-      const target = event.target as HTMLElement;
-      if (!target.closest(".add-destination")) return;
-      event.preventDefault(); event.stopImmediatePropagation();
-      const value = window.prompt("Nombre o dirección del establecimiento", "");
-      if (!value?.trim()) return;
-      setForm((current) => ({ ...current, destination: current.destination ? `${current.destination}\n${value.trim()} | ` : `${value.trim()} | ` }));
-      const lat = window.prompt("Latitud del establecimiento (opcional)", "");
-      setForm((current) => ({ ...current, destination: current.destination.replace(/\|\s*$/, `| ${lat?.trim() || ""} | `) }));
-      const lng = window.prompt("Longitud del establecimiento (opcional)", "");
-      setForm((current) => ({ ...current, destination: current.destination.replace(/\|\s*$/, `| ${lng?.trim() || ""}`) }));
-    };
-    document.addEventListener("click", addDestinationPrompt, true);
-    return () => document.removeEventListener("click", addDestinationPrompt, true);
-  }, []);
-
   async function createService(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!supabase) return;
@@ -100,7 +85,8 @@ export function ServicesManagement() {
     const firstPoint = form.destination.split(/\r?\n/).map((value) => value.trim()).filter(Boolean)[0] || "";
     if (editingId) {
       const [destination, lat, lng] = firstPoint.split("|").map((part) => part.trim());
-      const { error: updateError } = await supabase.from("services").update({ service_date: form.service_date, client_id: form.client_id, vehicle_id: form.vehicle_id || null, merchandise: form.merchandise || null, origin: form.origin || null, destination, destination_lat: lat ? Number(lat) : (form.destination_lat ? Number(form.destination_lat) : null), destination_lng: lng ? Number(lng) : (form.destination_lng ? Number(form.destination_lng) : null), scheduled_start: form.scheduled_start || null, updated_at: new Date().toISOString() }).eq("id", editingId);
+      const parsedLat = lat ? Number(lat) : null; const parsedLng = lng ? Number(lng) : null;
+      const { error: updateError } = await supabase.from("services").update({ service_date: form.service_date, client_id: form.client_id, vehicle_id: form.vehicle_id || null, merchandise: form.merchandise || null, origin: form.origin || null, destination, destination_lat: Number.isFinite(parsedLat) ? parsedLat : null, destination_lng: Number.isFinite(parsedLng) ? parsedLng : null, scheduled_start: form.scheduled_start || null, updated_at: new Date().toISOString() }).eq("id", editingId);
       if (updateError) setError(`No se pudo actualizar: ${updateError.message}`); else { setMessage("Servicio actualizado correctamente."); setShowForm(false); setEditingId(null); localStorage.removeItem("dcs_service_form_draft"); await loadData(); }
       setSaving(false); return;
     }
@@ -109,23 +95,22 @@ export function ServicesManagement() {
       setSaving(false);
       return;
     }
-    const destinations = form.destination.split(/\r?\n/).map((value) => { const [destination, lat, lng] = value.split("|").map((part) => part.trim()); return { destination, lat: lat ? Number(lat) : (form.destination_lat ? Number(form.destination_lat) : null), lng: lng ? Number(lng) : (form.destination_lng ? Number(form.destination_lng) : null) }; }).filter((value) => value.destination);
+    const normalized = (value: string) => value.trim().toLocaleLowerCase("es-PE").replace(/\s+/g, " ");
+    const destinations = [...new Map(form.destination.split(/\r?\n/).map((value) => { const [destination, latText, lngText] = value.split("|").map((part) => part.trim()); const lat = latText ? Number(latText) : null; const lng = lngText ? Number(lngText) : null; return { destination, lat, lng }; }).filter((value) => value.destination).map((point) => [normalized(point.destination), point] as const)).values()];
     if (!destinations.length) { setError("Ingresa al menos un establecimiento, uno por línea."); setSaving(false); return; }
     const duplicate = await supabase
       .from("services")
-      .select("id")
+      .select("id,destination")
       .eq("service_date", form.service_date)
       .eq("client_id", form.client_id)
-      .eq("scheduled_start", form.scheduled_start || "00:00:00")
       .neq("status", "Cancelado")
-      .limit(1);
-    if (destinations.length === 1 && form.scheduled_start && duplicate.data?.length) {
-      setError("Ya existe un servicio activo para ese cliente en la misma fecha y hora.");
-      setSaving(false);
-      return;
-    }
+      .limit(500);
+    if (duplicate.error) { setError(`No se pudo validar duplicados: ${duplicate.error.message}`); setSaving(false); return; }
+    const existing = new Set((duplicate.data ?? []).map((row) => normalized(String(row.destination || ""))));
+    const pending = destinations.filter((point) => !existing.has(normalized(point.destination)));
+    if (!pending.length) { setError("Todos esos puntos ya están registrados para ese cliente y fecha."); setSaving(false); return; }
     const { data: authData } = await supabase.auth.getUser();
-    const rows = destinations.map((point) => ({ service_date: form.service_date, client_id: form.client_id, vehicle_id: form.vehicle_id || null, merchandise: form.merchandise || null, origin: form.origin || null, destination: point.destination, destination_lat: Number.isFinite(point.lat) ? point.lat : null, destination_lng: Number.isFinite(point.lng) ? point.lng : null, delivery_points: 1, scheduled_start: form.scheduled_start || null, status: "Programado", created_by: authData.user?.id }));
+    const rows = pending.map((point) => ({ service_date: form.service_date, client_id: form.client_id, vehicle_id: form.vehicle_id || null, merchandise: form.merchandise || null, origin: form.origin || null, destination: point.destination, destination_lat: Number.isFinite(point.lat) ? point.lat : null, destination_lng: Number.isFinite(point.lng) ? point.lng : null, delivery_points: 1, scheduled_start: form.scheduled_start || null, status: "Programado", created_by: authData.user?.id }));
     const { data, error: serviceError } = await supabase.from("services").insert(rows).select("id");
     if (serviceError || !data?.length) {
       setError(`No se pudo crear el servicio: ${serviceError?.message ?? "sin identificador"}`);
@@ -137,7 +122,7 @@ export function ServicesManagement() {
         if (assignmentError) setError(`Servicio creado, pero falló una asignación: ${assignmentError.message}`);
       }
       setShowForm(false);
-      setMessage(`${destinations.length} servicio${destinations.length === 1 ? "" : "s"} creado${destinations.length === 1 ? "" : "s"} y asignado${destinations.length === 1 ? "" : "s"} correctamente.`);
+      setMessage(`${pending.length} servicio${pending.length === 1 ? "" : "s"} creado${pending.length === 1 ? "" : "s"}. ${destinations.length - pending.length ? `${destinations.length - pending.length} repetido${destinations.length - pending.length === 1 ? "" : "s"} omitido${destinations.length - pending.length === 1 ? "" : "s"}.` : ""}`);
       localStorage.removeItem("dcs_service_form_draft");
       setForm({ ...form, merchandise: "", origin: "", destination: "", destination_lat: "", destination_lng: "", delivery_points: "1", scheduled_start: "", driver_id: "", assistant_id: "" });
       await loadData();
@@ -147,7 +132,7 @@ export function ServicesManagement() {
 
   function editService(service: ServiceRow) {
     setEditingId(service.id); setShowForm(true); setError(""); setMessage("");
-    setForm((current) => ({ ...current, service_date: service.service_date, merchandise: service.merchandise || "", origin: service.origin || "", destination: service.destination || "", scheduled_start: service.scheduled_start || "" }));
+    setForm((current) => ({ ...current, service_date: service.service_date, client_id: service.client_id, merchandise: service.merchandise || "", origin: service.origin || "", destination: service.destination || "", scheduled_start: service.scheduled_start || "" }));
   }
 
   async function updateStatus(id: string, status: string) {
@@ -167,15 +152,22 @@ export function ServicesManagement() {
     setUpdatingId("");
   }
 
+  const visibleServices = services.filter((service) => (!filterMonth || service.service_date.startsWith(filterMonth)) && (!filterClient || service.client_id === filterClient));
+  const destinationLines = form.destination.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const destinationNames = destinationLines.map((line) => line.split("|")[0].trim().toLocaleLowerCase("es-PE").replace(/\s+/g, " "));
+  const uniqueDestinationCount = new Set(destinationNames).size;
+  const repeatedDestinationCount = Math.max(0, destinationLines.length - uniqueDestinationCount);
+  const coordinateCount = destinationLines.filter((line) => { const parts = line.split("|").map((part) => part.trim()); return parts.length >= 3 && Number.isFinite(Number(parts[1])) && Number.isFinite(Number(parts[2])); }).length;
+
   return (
     <>
     <main className="content">
       <section className="welcome"><div><span className="live-dot">OPERACIÓN EN TIEMPO REAL</span><h2>Servicios y asignaciones</h2><p>Programa rutas, asigna personal y controla el avance de cada servicio.</p></div><button className="primary" onClick={() => setShowForm(!showForm)}><Plus size={19} />{showForm ? "Cerrar formulario" : "Nuevo servicio"}</button></section>
       {error && <div className="module-error"><WarningCircle size={20} />{error}</div>}
       {message && <div className="module-success"><CheckCircle size={20} />{message}</div>}
-      {showForm && <form className="service-form panel" onSubmit={createService}><div className="panel-title"><div><span>NUEVA OPERACIÓN</span><h3>Programar servicio</h3></div></div><div className="form-grid"><label>Fecha<input type="date" value={form.service_date} onChange={(e) => setForm({ ...form, service_date: e.target.value })} required /></label><label>Cliente<select value={form.client_id} onChange={(e) => setForm({ ...form, client_id: e.target.value })} required><option value="">Seleccionar</option>{clients.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label><label>Unidad<select value={form.vehicle_id} onChange={(e) => setForm({ ...form, vehicle_id: e.target.value })}><option value="">Sin asignar</option>{vehicles.map((item) => <option value={item.id} key={item.id}>{item.name} · {item.plate}</option>)}</select></label><label>Hora<input type="time" value={form.scheduled_start} onChange={(e) => setForm({ ...form, scheduled_start: e.target.value })} /></label><label>Chofer<select value={form.driver_id} onChange={(e) => setForm({ ...form, driver_id: e.target.value })}><option value="">Sin asignar</option>{staff.map((item) => <option value={item.id} key={item.id}>{item.full_name || item.email}</option>)}</select></label><label>Auxiliar<select value={form.assistant_id} onChange={(e) => setForm({ ...form, assistant_id: e.target.value })}><option value="">Sin asignar</option>{staff.map((item) => <option value={item.id} key={item.id}>{item.full_name || item.email}</option>)}</select></label><label className="wide">Mercadería<input value={form.merchandise} onChange={(e) => setForm({ ...form, merchandise: e.target.value })} placeholder="Descripción de la carga" /></label><label>Origen<input value={form.origin} onChange={(e) => setForm({ ...form, origin: e.target.value })} placeholder="Punto de recojo" /></label><label className="wide">Establecimientos / puntos<textarea value={form.destination} onChange={(e) => setForm({ ...form, destination: e.target.value })} placeholder="Un establecimiento por línea" rows={4} required /><button type="button" className="add-destination" onClick={() => setForm((current) => ({ ...current, destination: current.destination ? `${current.destination}\n` : "" }))}><Plus size={15} /> Agregar destino</button></label><label>Latitud del local<input type="number" step="any" min="-90" max="90" value={form.destination_lat} onChange={(e) => setForm({ ...form, destination_lat: e.target.value })} placeholder="Ej. -12.0464" /></label><label>Longitud del local<input type="number" step="any" min="-180" max="180" value={form.destination_lng} onChange={(e) => setForm({ ...form, destination_lng: e.target.value })} placeholder="Ej. -77.0428" /></label><p className="form-help wide">Un establecimiento por línea. Para coordenadas individuales usa: Local | latitud | longitud. Al guardar se crea un servicio por punto.</p></div><div className="form-actions"><button type="button" onClick={() => setShowForm(false)}>Cancelar</button><button className="primary" disabled={saving}>{saving ? "Guardando…" : "Crear servicio"}</button></div></form>}
-      <section className="panel operations-list"><div className="panel-title"><div><span>AGENDA OPERATIVA</span><h3>Últimos servicios</h3></div><button disabled={loading} onClick={() => void loadData()}>{loading ? "Actualizando…" : "Actualizar"}</button></div>{loading ? <div className="empty-state"><SpinnerGap className="spin" size={28} /> Cargando servicios…</div> : services.length === 0 ? <div className="empty-state"><CalendarCheck size={32} /> Aún no existen servicios. Crea el primero.</div> : services.map((service) => <article className="operation-row" key={service.id}><div className="operation-date"><strong>{new Date(`${service.service_date}T12:00:00`).toLocaleDateString("es-PE", { day: "2-digit", month: "short" })}</strong><span>{service.scheduled_start?.slice(0,5) || "—"}</span></div><div className="operation-main"><strong>{service.clients?.name ?? "Cliente sin asignar"}</strong><span><MapPin size={14} />{service.origin || "Origen pendiente"} → {service.destination || "Destino pendiente"}</span><span><Car size={14} />{service.vehicles ? `${service.vehicles.name} · ${service.vehicles.plate}` : "Unidad pendiente"}</span></div><div className="operation-cargo"><span>{service.merchandise || "Sin detalle de mercadería"}</span></div><select className="status-select" disabled={updatingId === service.id} value={service.status} onChange={(e) => void updateStatus(service.id, e.target.value)}>{statuses.map((status) => <option key={status}>{status}</option>)}</select></article>)}</section>
-      <div className="service-edit-list">{services.map((service) => <button type="button" key={`edit-${service.id}`} onClick={() => editService(service)}><PencilSimple size={14} /> Editar {service.destination || "servicio"}</button>)}</div>
+      {showForm && <form className="service-form panel" onSubmit={createService}><div className="panel-title"><div><span>NUEVA OPERACIÓN</span><h3>{editingId ? "Editar servicio" : "Programar servicio"}</h3></div></div><div className="form-grid"><label>Fecha<input type="date" value={form.service_date} onChange={(e) => setForm({ ...form, service_date: e.target.value })} required /></label><label>Cliente<select value={form.client_id} onChange={(e) => setForm({ ...form, client_id: e.target.value })} required><option value="">Seleccionar</option>{clients.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label><label>Unidad<select value={form.vehicle_id} onChange={(e) => setForm({ ...form, vehicle_id: e.target.value })}><option value="">Sin asignar</option>{vehicles.map((item) => <option value={item.id} key={item.id}>{item.name} · {item.plate}</option>)}</select></label><label>Hora<input type="time" value={form.scheduled_start} onChange={(e) => setForm({ ...form, scheduled_start: e.target.value })} /></label><label>Chofer<select value={form.driver_id} onChange={(e) => setForm({ ...form, driver_id: e.target.value })}><option value="">Sin asignar</option>{staff.map((item) => <option value={item.id} key={item.id}>{item.full_name || item.email}</option>)}</select></label><label>Auxiliar<select value={form.assistant_id} onChange={(e) => setForm({ ...form, assistant_id: e.target.value })}><option value="">Sin asignar</option>{staff.map((item) => <option value={item.id} key={item.id}>{item.full_name || item.email}</option>)}</select></label><label className="wide">Mercadería<input value={form.merchandise} onChange={(e) => setForm({ ...form, merchandise: e.target.value })} placeholder="Descripción de la carga" /></label><label>Origen<input value={form.origin} onChange={(e) => setForm({ ...form, origin: e.target.value })} placeholder="Punto de recojo" /></label><label className="wide">Establecimientos / puntos<textarea value={form.destination} onChange={(e) => setForm({ ...form, destination: e.target.value })} placeholder="Pega aquí la lista: un establecimiento por línea" rows={7} required /><button type="button" className="add-destination" onClick={() => setForm((current) => ({ ...current, destination: current.destination ? `${current.destination}\n` : "" }))}><Plus size={15} /> Agregar otra línea</button></label><div className="destination-preview wide"><strong>Validación antes de guardar</strong><span>{uniqueDestinationCount} punto{uniqueDestinationCount === 1 ? "" : "s"} únicos · {coordinateCount} con coordenadas · {repeatedDestinationCount} repetidos omitibles</span>{repeatedDestinationCount > 0 && <small>Revisa las líneas repetidas; la app guardará solo una por establecimiento y fecha.</small>}</div><p className="form-help wide">Las coordenadas son opcionales. Si las tienes, escríbelas en la misma línea: Establecimiento | latitud | longitud. Sin coordenadas, el chofer verá el nombre/dirección y el administrador verá el estado de validación.</p></div><div className="form-actions"><button type="button" onClick={() => { setShowForm(false); setEditingId(null); }}>Cancelar</button><button className="primary" disabled={saving}>{saving ? "Guardando…" : editingId ? "Guardar cambios" : "Crear servicios"}</button></div></form>}
+      <section className="panel operations-list"><div className="panel-title"><div><span>AGENDA OPERATIVA</span><h3>Servicios asignados</h3></div><button disabled={loading} onClick={() => void loadData()}>{loading ? "Actualizando…" : "Actualizar"}</button></div><div className="table-filters"><label>Mes<input type="month" value={filterMonth} onChange={(e) => setFilterMonth(e.target.value)} /></label><label>Cliente<select value={filterClient} onChange={(e) => setFilterClient(e.target.value)}><option value="">Todos los clientes</option>{clients.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label>{(filterMonth || filterClient) && <button type="button" onClick={() => { setFilterMonth(""); setFilterClient(""); }}>Limpiar filtros</button>}</div>{loading ? <div className="empty-state"><SpinnerGap className="spin" size={28} /> Cargando servicios…</div> : visibleServices.length === 0 ? <div className="empty-state"><CalendarCheck size={32} /> No hay servicios para los filtros seleccionados.</div> : visibleServices.map((service) => <article className="operation-row" key={service.id}><div className="operation-date"><strong>{new Date(`${service.service_date}T12:00:00`).toLocaleDateString("es-PE", { day: "2-digit", month: "short" })}</strong><span>{service.scheduled_start?.slice(0,5) || "—"}</span></div><div className="operation-main"><strong>{service.clients?.name ?? "Cliente sin asignar"}</strong><span><MapPin size={14} />{service.origin || "Origen pendiente"} → {service.destination || "Destino pendiente"}</span><span><Car size={14} />{service.vehicles ? `${service.vehicles.name} · ${service.vehicles.plate}` : "Unidad pendiente"}</span></div><div className="operation-cargo"><span>{service.merchandise || "Sin detalle de mercadería"}</span></div><select className="status-select" disabled={updatingId === service.id} value={service.status} onChange={(e) => void updateStatus(service.id, e.target.value)}>{statuses.map((status) => <option key={status}>{status}</option>)}</select></article>)}</section>
+      <div className="service-edit-list">{visibleServices.map((service) => <button type="button" key={`edit-${service.id}`} onClick={() => editService(service)}><PencilSimple size={14} /> Editar {service.destination || "servicio"}</button>)}</div>
     </main>
     </>
   );
