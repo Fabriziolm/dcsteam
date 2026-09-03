@@ -100,7 +100,7 @@ function Notice({ error, message }: { error: string; message: string }) {
 function FinancialSummary({year,month}:{year:number;month:string}){
   const [loading,setLoading]=useState(true),[error,setError]=useState(""),[invoices,setInvoices]=useState<Array<{amount_with_tax:number;clients:{name:string}|null}>>([]),[expenses,setExpenses]=useState<Array<{amount:number;category:string;clients:{name:string}|null}>>([]);
   const period=periodForMonth(year,month,{start:`${year}-01-01`,end:`${year}-12-31`});
-  useEffect(()=>{if(!supabase)return;setLoading(true);Promise.all([supabase.from("invoices").select("amount_with_tax,clients(name)").gte("issue_date",period.start).lte("issue_date",period.end),supabase.from("expenses").select("amount,category,clients(name)").gte("expense_date",period.start).lte("expense_date",period.end).neq("status","Rechazado")]).then(([a,b])=>{if(a.error||b.error)setError(a.error?.message||b.error?.message||"");else{setInvoices((a.data||[]) as unknown as typeof invoices);setExpenses((b.data||[]) as unknown as typeof expenses)}setLoading(false)});},[period.start,period.end]);
+  useEffect(()=>{if(!supabase)return;setLoading(true);Promise.all([supabase.from("invoices").select("amount_with_tax,clients(name)").eq("source_system","google_sheets").gte("issue_date",period.start).lte("issue_date",period.end),supabase.from("expenses").select("amount,category,clients(name)").gte("expense_date",period.start).lte("expense_date",period.end).neq("status","Rechazado")]).then(([a,b])=>{if(a.error||b.error)setError(a.error?.message||b.error?.message||"");else{setInvoices((a.data||[]) as unknown as typeof invoices);setExpenses((b.data||[]) as unknown as typeof expenses)}setLoading(false)});},[period.start,period.end]);
   const income=new Map<string,number>(),outgo=new Map<string,number>();invoices.forEach(r=>income.set(r.clients?.name||"Sin cliente",(income.get(r.clients?.name||"Sin cliente")||0)+Number(r.amount_with_tax)));expenses.forEach(r=>outgo.set(r.category,(outgo.get(r.category)||0)+Number(r.amount)));const incomeTotal=[...income.values()].reduce((a,b)=>a+b,0),outgoTotal=[...outgo.values()].reduce((a,b)=>a+b,0);
   return <section className="panel financial-summary"><div className="panel-title"><div><span>RESUMEN FINANCIERO</span><h3>Ingresos por cliente y egresos</h3></div><b>{month==="all"?`Año ${year}`:`${month}/${year}`}</b></div>{error&&<div className="module-error">{error}</div>}{loading?<div className="empty-state"><SpinnerGap className="spin" size={22}/>Calculando resumen…</div>:<div className="financial-summary-grid"><div><h4>Ingresos por cliente</h4>{[...income.entries()].sort((a,b)=>b[1]-a[1]).map(([name,value])=><p key={name}><span>{name}</span><strong>S/ {value.toFixed(2)}</strong></p>)}<b className="financial-total">Total ingresos: S/ {incomeTotal.toFixed(2)}</b></div><div><h4>Egresos</h4>{[...outgo.entries()].sort((a,b)=>b[1]-a[1]).map(([name,value])=><p key={name}><span>{name}</span><strong>S/ {value.toFixed(2)}</strong></p>)}<b className="financial-total">Total egresos: S/ {outgoTotal.toFixed(2)}</b></div></div>}</section>
 }
@@ -114,7 +114,7 @@ export function BillingManagement() {
     [billableServices, setBillableServices] = useState<BillableService[]>([]);
   const [loading, setLoading] = useState(true),
     [saving, setSaving] = useState(false),
-    [show, setShow] = useState(false);
+    [uploadingId, setUploadingId] = useState("");
   const [error, setError] = useState(""),
     [message, setMessage] = useState("");
   const [form, setForm] = useState({
@@ -126,7 +126,6 @@ export function BillingManagement() {
     concept: "",
     status: "Pendiente",
   });
-  const [attachment, setAttachment] = useState<File | null>(null);
   const load = useCallback(async () => {
     if (!supabase) return;
     setLoading(true);
@@ -136,6 +135,7 @@ export function BillingManagement() {
         .select(
           "id,invoice_number,issue_date,amount_with_tax,paid_amount,status,concept,attachment_path,attachment_name,clients(name)",
         )
+        .eq("source_system", "google_sheets")
         .gte("issue_date",period.start)
         .lte("issue_date",period.end)
         .order("issue_date", { ascending: false })
@@ -183,54 +183,20 @@ export function BillingManagement() {
     else { invoiceWindow.opener = null; invoiceWindow.location.href = data.signedUrl; }
   }
 
-  async function save(e: FormEvent) {
-    e.preventDefault();
+  async function attachInvoice(row: Invoice, file: File) {
     if (!supabase) return;
-    setSaving(true);
-    setError("");
-    setMessage("");
+    const allowed = ['application/pdf'];
+    if (!allowed.includes(file.type)) { setError('Adjunta únicamente archivos PDF.'); return; }
+    if (file.size > 15 * 1024 * 1024) { setError('La factura no puede superar 15 MB.'); return; }
+    setUploadingId(row.id); setError(''); setMessage('');
     const { data } = await supabase.auth.getUser();
-    const amount = Number(form.amount_with_tax);
-    if (!Number.isFinite(amount) || amount <= 0) {
-      setError("El importe de la factura debe ser mayor que cero.");
-      setSaving(false);
-      return;
-    }
-    if (attachment) {
-      const allowed = ["application/pdf", "image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"];
-      if (!allowed.includes(attachment.type)) { setError("Adjunta un PDF o una imagen (JPG, PNG, WEBP o HEIC)."); setSaving(false); return; }
-      if (attachment.size > 15 * 1024 * 1024) { setError("La factura no puede superar 15 MB."); setSaving(false); return; }
-    }
-    const invoiceId = crypto.randomUUID();
-    const attachmentPath = attachment ? `${data.user?.id || "admin"}/${invoiceId}/${crypto.randomUUID()}-${attachment.name.replace(/[^a-zA-Z0-9._-]/g, "_")}` : null;
-    const r = await supabase
-      .from("invoices")
-      .insert({
-        id: invoiceId,
-        ...form,
-        service_id: form.service_id || null,
-        invoice_number: form.invoice_number.trim().toUpperCase() || null,
-        amount_with_tax: amount,
-        amount_without_tax: Number((amount / 1.18).toFixed(2)),
-        paid_amount: form.status === "Pagado" ? amount : 0,
-        concept: form.concept.trim() || null,
-        created_by: data.user?.id,
-        attachment_path: attachmentPath,
-        attachment_name: attachment?.name || null,
-      });
-    if (r.error) setError(r.error.code === "23505" ? "Ese número de factura o servicio ya fue registrado." : r.error.message);
-    else {
-      if (attachment && attachmentPath) {
-        const upload = await supabase.storage.from("invoice-files").upload(attachmentPath, attachment, { contentType: attachment.type, upsert: false });
-        if (upload.error) { await supabase.from("invoices").delete().eq("id", invoiceId); setError(`No se pudo adjuntar la factura: ${upload.error.message}`); setSaving(false); return; }
-      }
-      setMessage(form.service_id ? "Factura registrada y alerta del servicio cerrada." : "Factura registrada.");
-      setShow(false);
-      setForm({service_id:"",invoice_number:"",issue_date:new Date().toISOString().slice(0,10),client_id:"",amount_with_tax:"",concept:"",status:"Pendiente"});
-      setAttachment(null);
-      await load();
-    }
-    setSaving(false);
+    const path = [data.user?.id || 'admin', row.id, crypto.randomUUID() + '-' + file.name.replace(/[^a-zA-Z0-9._-]/g, '_')].join('/');
+    const upload = await supabase.storage.from('invoice-files').upload(path, file, { contentType: file.type, upsert: false });
+    if (upload.error) { setError('No se pudo adjuntar la factura: ' + upload.error.message); setUploadingId(''); return; }
+    const update = await supabase.from('invoices').update({ attachment_path: path, attachment_name: file.name, updated_at: new Date().toISOString() }).eq('id', row.id);
+    if (update.error) { await supabase.storage.from('invoice-files').remove([path]); setError('No se pudo guardar el adjunto: ' + update.error.message); }
+    else { setMessage('Factura adjuntada correctamente.'); await load(); }
+    setUploadingId('');
   }
   const total = rows.reduce((n, r) => n + Number(r.amount_with_tax), 0),
     pending = rows
@@ -247,10 +213,7 @@ export function BillingManagement() {
           <h2>Facturación</h2>
           <p>Registro y seguimiento de comprobantes por cliente.</p>
         </div>
-        <button className="primary" onClick={() => { setShow(!show); setError(""); setMessage(""); }}>
-          <Plus size={19} />
-          {show ? "Cerrar formulario" : "Nueva factura"}
-        </button>
+
       </section>
       <Notice error={error} message={message} />
       <section className="panel billing-period-filter"><label>Periodo de facturación<select value={month} onChange={event=>setMonth(event.target.value)}><option value="all">Todo el año {year}</option>{monthOptions.map(value=><option value={value} key={value}>{new Date(2000,Number(value)-1,1).toLocaleDateString("es-PE",{month:"long"})} {year}</option>)}</select></label></section>
@@ -273,125 +236,7 @@ export function BillingManagement() {
           <strong>{billableServices.length}</strong>
         </article>
       </section>
-      {show && (
-        <form className="service-form panel" onSubmit={save}>
-          <div className="panel-title">
-            <div>
-              <span>NUEVO REGISTRO</span>
-              <h3>Agregar factura</h3>
-            </div>
-          </div>
-          <div className="form-grid">
-            <label className="wide">
-              Servicio cerrado
-              <select
-                value={form.service_id}
-                onChange={(e) => {
-                  const service = billableServices.find((item) => item.id === e.target.value);
-                  setForm({
-                    ...form,
-                    service_id: e.target.value,
-                    client_id: service?.client_id || form.client_id,
-                    concept: service
-                      ? `${service.merchandise || "Servicio de transporte"} · ${service.origin || "Origen pendiente"} → ${service.destination || "Destino pendiente"}`
-                      : form.concept,
-                  });
-                }}
-              >
-                <option value="">Factura sin servicio asociado</option>
-                {billableServices.map((service) => (
-                  <option key={service.id} value={service.id}>
-                    {service.service_date} · {service.clients?.name || "Sin cliente"} · {service.vehicles?.plate || "Sin unidad"}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Número
-              <input
-                required
-                placeholder="Ej. F001-000123"
-                value={form.invoice_number}
-                onChange={(e) =>
-                  setForm({ ...form, invoice_number: e.target.value })
-                }
-              />
-            </label>
-            <label>
-              Fecha
-              <input
-                type="date"
-                required
-                value={form.issue_date}
-                onChange={(e) =>
-                  setForm({ ...form, issue_date: e.target.value })
-                }
-              />
-            </label>
-            <label>
-              Cliente
-              <select
-                required
-                value={form.client_id}
-                onChange={(e) =>
-                  setForm({ ...form, client_id: e.target.value })
-                }
-              >
-                <option value="">Seleccionar</option>
-                {clients.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Importe con IGV
-              <input
-                type="number"
-                min="0.01"
-                step="0.01"
-                required
-                value={form.amount_with_tax}
-                onChange={(e) =>
-                  setForm({ ...form, amount_with_tax: e.target.value })
-                }
-              />
-            </label>
-            <label className="wide">
-              Concepto
-              <input
-                value={form.concept}
-                onChange={(e) => setForm({ ...form, concept: e.target.value })}
-              />
-            </label>
-            <label>
-              Estado
-              <select
-                value={form.status}
-                onChange={(e) => setForm({ ...form, status: e.target.value })}
-              >
-                <option>Pendiente</option>
-                <option>Parcial</option>
-                <option>Pagado</option>
-              </select>
-            </label>
-            <label className="wide">
-              Adjuntar factura
-              <input type="file" accept="application/pdf,image/*" onChange={(e) => setAttachment(e.target.files?.[0] || null)} />
-              <small className="file-help">PDF o imagen, máximo 15 MB. Se guarda de forma privada.</small>
-            </label>
-          </div>
-          <div className="form-actions">
-            <button type="button" onClick={() => setShow(false)}>
-              Cancelar
-            </button>
-            <button className="primary" disabled={saving}>
-              {saving ? "Guardando…" : "Guardar factura"}
-            </button>
-          </div>
-        </form>
-      )}
+
       <DataTable loading={loading} empty="No hay facturas registradas.">
         <thead>
           <tr>
@@ -416,7 +261,7 @@ export function BillingManagement() {
                 <b className={`table-status ${invoiceStatusTone(r.status)}`}>{r.status}</b>
               </td>
               <td>
-                {r.attachment_path ? <button className="receipt-link" onClick={() => void openInvoiceFile(r.attachment_path!)}><Paperclip size={14} /> Ver factura</button> : "—"}
+                {r.attachment_path ? <><button className="receipt-link" onClick={() => void openInvoiceFile(r.attachment_path!)}><Paperclip size={14} /> Ver factura</button><label className="invoice-attach-replace">{uploadingId===r.id?"Subiendo…":"Reemplazar"}<input type="file" accept="application/pdf" disabled={uploadingId===r.id} onChange={event => { const file=event.target.files?.[0]; if(file) void attachInvoice(r,file); event.target.value=""; }} /></label></> : <label className="receipt-link invoice-attach-label"><Paperclip size={14} /> {uploadingId===r.id?"Subiendo…":"Adjuntar PDF"}<input type="file" accept="application/pdf" disabled={uploadingId===r.id} onChange={event => { const file=event.target.files?.[0]; if(file) void attachInvoice(r,file); event.target.value=""; }} /></label>}
               </td>
             </tr>
           ))}
