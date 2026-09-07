@@ -42,7 +42,9 @@ function readCashData(){
     const isSummary=/\b(TOTAL|CIERRE|CUADRE)\b/i.test(concept);
     if(isSummary&&balance!=null&&lastDate)balances.push({sourceKey:`cash-balance:${row}`,date:lastDate,label:concept||`Cierre fila ${row}`,balance});
     if(isSummary)return;
-    const base={sourceKey:`cash:${row}`,concept,date};
+    // En la hoja se deja la fecha vacía para repetir la fecha de la fila
+    // anterior. Conservamos esa fecha efectiva para no perder el movimiento.
+    const base={sourceKey:`cash:${row}`,concept,date:date||lastDate};
     if(income>0)movements.push({...base,sourceKey:`${base.sourceKey}:income`,type:"Ingreso",amount:income});
     if(expense>0)movements.push({...base,sourceKey:`${base.sourceKey}:expense`,type:"Egreso",amount:expense});
   });
@@ -86,7 +88,9 @@ function num(v){
 }
 function isoDate(v){
   if(v instanceof Date&&!isNaN(v))return Utilities.formatDate(v,"America/Lima","yyyy-MM-dd");
-  if(typeof v==="number"&&!isNaN(v))return Utilities.formatDate(new Date(Math.round((v-25569)*86400000)),"America/Lima","yyyy-MM-dd");
+  // Usar mediodía UTC evita que America/Lima retroceda un día al convertir
+  // números seriales importados desde Excel/Sheets.
+  if(typeof v==="number"&&!isNaN(v))return Utilities.formatDate(new Date(Math.round((v-25569)*86400000)+12*60*60*1000),"America/Lima","yyyy-MM-dd");
   const raw=text(v);if(!raw)return "";
   let match=raw.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{2,4})$/);
   if(match){const year=Number(match[3])<100?2000+Number(match[3]):Number(match[3]);return Utilities.formatString("%04d-%02d-%02d",year,Number(match[2]),Number(match[1]))}

@@ -36,6 +36,10 @@ const expenseClientNames = [
 ];
 const normalizeName = (value: string) =>
   value.trim().toLocaleLowerCase("es-PE");
+const localDateKey = (date = new Date()) => {
+  const offsetDate = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+  return offsetDate.toISOString().slice(0, 10);
+};
 type Service = {
   id: string;
   service_date: string;
@@ -128,7 +132,9 @@ export function OperativePortal({
     correction_time: new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,16),
     status: "En ruta",
   });
-  const today = new Date().toISOString().slice(0, 10);
+  // La fecha operativa debe ser la fecha local del chofer. Con UTC, en Lima la
+  // app cambiaba al día siguiente desde las 19:00 y dejaba de mostrar la ruta.
+  const today = localDateKey();
 
   const loadData = useCallback(async () => {
     if (!supabase) return;
@@ -210,6 +216,31 @@ export function OperativePortal({
   useEffect(() => {
     void loadData();
   }, [loadData]);
+  useEffect(() => {
+    // initialAction puede abrir el gasto antes de que termine de cargar la
+    // asignación. Mantener sincronizado el valor real evita mostrar una unidad
+    // mientras internamente el formulario continúa vacío.
+    if ((action === "fuel" || action === "expense") && !form.vehicle_id && vehicles[0]?.id) {
+      setForm(current => ({ ...current, vehicle_id: vehicles[0].id }));
+      setError(current => current.includes("asignarte una unidad") ? "" : current);
+    }
+  }, [action, form.vehicle_id, vehicles]);
+  useEffect(() => {
+    if (!supabase) return;
+    const client = supabase;
+    const channel = client
+      .channel(`driver-services-${session.user.id}`)
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "services" }, () => void loadData())
+      .subscribe();
+    const refresh = () => void loadData();
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refresh);
+      void client.removeChannel(channel);
+    };
+  }, [loadData, session.user.id]);
   useEffect(() => {
     if (initialAction) open(initialAction);
   }, [initialAction]);
@@ -318,8 +349,9 @@ export function OperativePortal({
       if(!Number.isFinite(odometer)||odometer<0){setError("Ingresa un kilometraje válido.");setSaving(false);return}
       result=await supabase.rpc("record_vehicle_odometer",{target_vehicle_id:form.vehicle_id,odometer});
     } else if (action === "fuel" || action === "expense") {
+      const assignedVehicleId = form.vehicle_id || vehicles[0]?.id || "";
       if(!form.client_id){setError("Selecciona el cliente antes de guardar el gasto.");setSaving(false);return}
-      if (!form.vehicle_id) { setError("Administración debe asignarte una unidad antes de registrar gastos."); setSaving(false); return; }
+      if (!assignedVehicleId) { setError("Administración debe asignarte una unidad antes de registrar gastos."); setSaving(false); return; }
       const amount = Number(form.amount);
       if (!Number.isFinite(amount) || amount <= 0 || amount > 10000) { setError("El importe debe ser mayor a S/ 0 y menor o igual a S/ 10,000."); setSaving(false); return; }
       if (form.concept.trim().length < 4) { setError("Describe mejor el concepto del gasto."); setSaving(false); return; }
@@ -330,7 +362,7 @@ export function OperativePortal({
       }
       if (expenseReceipts.some(file=>!file.type.startsWith("image/"))) { setError("Todos los comprobantes deben ser imágenes."); setSaving(false); return; }
       if (expenseReceipts.some(file=>file.size > 8 * 1024 * 1024)) { setError("Cada imagen debe pesar como máximo 8 MB."); setSaving(false); return; }
-      const duplicate = await supabase.from("expenses").select("id").eq("user_id",session.user.id).eq("expense_date",today).eq("vehicle_id",form.vehicle_id).eq("category",form.category).eq("amount",amount).eq("source_system","dcs_app").neq("status","Rechazado").limit(1);
+      const duplicate = await supabase.from("expenses").select("id").eq("user_id",session.user.id).eq("expense_date",today).eq("vehicle_id",assignedVehicleId).eq("category",form.category).eq("amount",amount).eq("source_system","dcs_app").neq("status","Rechazado").limit(1);
       if (duplicate.error) { setError(duplicate.error.message); setSaving(false); return; }
       if (duplicate.data?.length) { setError("Posible comprobante duplicado: ya registraste hoy el mismo importe, tipo y unidad."); setSaving(false); return; }
       const receiptPaths:string[]=[];
@@ -354,7 +386,7 @@ export function OperativePortal({
         user_id: session.user.id,
         service_id: null,
         client_id: form.client_id,
-        vehicle_id: form.vehicle_id,
+        vehicle_id: assignedVehicleId,
         category: form.category,
         concept: form.concept,
           amount,
@@ -375,14 +407,33 @@ export function OperativePortal({
         status: "Abierto",
       });
     } else {
+      const odometer = Number(form.km);
+      if (!form.service_id) { setError("Selecciona el punto que deseas actualizar."); setSaving(false); return; }
+      if (!Number.isFinite(odometer) || odometer < 0) { setError("Ingresa un kilometraje válido."); setSaving(false); return; }
       result = await supabase.rpc("record_service_progress", {
         target_service_id: form.service_id,
         new_status: action === "progress" ? form.status : null,
-        odometer: Number(form.km),
+        odometer,
       });
     }
     if (result.error) setError(result.error.message);
     else {
+      if (action === "progress") {
+        const expectedStatus = form.status;
+        const verification = await supabase
+          .from("services")
+          .select("status,km_start,km_end")
+          .eq("id", form.service_id)
+          .single();
+        if (verification.error || verification.data?.status !== expectedStatus) {
+          setError(verification.error?.message || "El punto no confirmó el estado guardado. Inténtalo nuevamente.");
+          setSaving(false);
+          return;
+        }
+        setServices(current => current.map(service => service.id === form.service_id
+          ? { ...service, status: verification.data.status, km_start: verification.data.km_start, km_end: verification.data.km_end }
+          : service));
+      }
       if(action==="fuel"||action==="expense")localStorage.removeItem(expenseDraftKey);
       closeAction();
       setMessage(action === "attendance" ? activeShift ? "Salida registrada con ubicación y evidencia." : "Entrada registrada con ubicación y evidencia." : action === "attendance-correction" ? "Solicitud enviada a administración para revisión." : "Registro guardado correctamente.");
@@ -451,7 +502,7 @@ export function OperativePortal({
             </div>
           ) : (
             services.map((s, i) => (
-              <article className="service" key={s.id}>
+              <article className={`service ${s.status === "Completado" ? "service-completed" : ""}`} key={s.id}>
                 <div className="timeline">
                   <strong>{s.scheduled_start?.slice(0, 5) || "—"}</strong>
                   <i className={i === 0 ? "current" : ""} />
@@ -467,9 +518,9 @@ export function OperativePortal({
                       <h3>{s.clients?.name || "Cliente pendiente"}</h3>
                     </div>
                     <b
-                      className={`status ${s.status === "En ruta" ? "green-status" : s.status === "Confirmado" ? "blue-status" : "amber-status"}`}
+                      className={`status ${s.status === "Completado" ? "green-status" : s.status === "En ruta" ? "blue-status" : "amber-status"}`}
                     >
-                      {s.status}
+                      {s.status === "Completado" && <CheckCircle size={15} weight="fill" />} {s.status}
                     </b>
                   </div>
                   <p>

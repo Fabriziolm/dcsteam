@@ -90,3 +90,15 @@
 .destination-preview{display:flex;flex-direction:column;gap:4px;padding:10px 12px;border:1px solid #d8e7d3;border-radius:9px;background:#f4faef;color:#315b3b;font-size:11px}.destination-preview small{color:#8a5d18}
 .status-select.status-completed{background:#dff5eb;color:#087758}.status-select.status-programmed{background:#fff2dc;color:#a5660d}.service-status-completed{background:#dff5eb!important;color:#087758!important}.service-status-programmed{background:#fff2dc!important;color:#a5660d!important}
 .route-alert-card{max-width:620px;text-align:left}.route-alert-card>i{width:58px;height:58px;display:grid;place-items:center;border-radius:16px;background:#e8f1ff;color:var(--blue);margin-bottom:14px}.route-alert-card small{font-size:10px;letter-spacing:.1em;color:var(--blue);font-weight:800}.route-alert-card h2{margin:8px 0;font:800 22px Manrope}.route-alert-card p{color:var(--muted);line-height:1.5}.route-alert-checks{display:grid;gap:8px;margin:17px 0;padding:14px;border-radius:10px;background:#f7f9fc}.route-alert-checks span{display:flex;align-items:center;gap:7px;font-size:11px;font-weight:700;color:#315b3b}.route-alert-checks svg{color:var(--green)}
+.operation-route{border-bottom:1px solid #e5eaf0;padding:0;margin:0}
+.operation-route>summary{list-style:none;display:grid;grid-template-columns:140px minmax(0,1fr) auto;gap:18px;align-items:center;padding:22px 0;cursor:pointer}
+.operation-route>summary::-webkit-details-marker{display:none}
+.operation-route>summary:after{content:"\2304";font-size:22px;color:#718096}
+.operation-route[open]>summary:after{transform:rotate(180deg)}
+.route-progress{padding:8px 12px;border-radius:999px;background:#fff2d7;color:#966314;white-space:nowrap}
+.route-progress.complete{background:#ddf6e8;color:#167447}
+.route-point-list{display:grid;gap:8px;padding:0 0 20px 158px}
+.route-point{display:grid;grid-template-columns:32px minmax(0,1fr) 40px minmax(150px,220px);gap:10px;align-items:center;padding:11px;border-radius:12px;background:#f7f9fc}
+.route-point>b{display:grid;place-items:center;width:28px;height:28px;border-radius:50%;background:#e3f3f4;color:#08737c}
+.route-point div{display:grid;gap:3px;min-width:0}.route-point small{color:#718096}.route-point>button{padding:9px}
+@media(max-width:700px){.operation-route>summary{grid-template-columns:86px minmax(0,1fr) auto;gap:10px}.route-progress{grid-column:2}.route-point-list{padding-left:0}.route-point{grid-template-columns:32px minmax(0,1fr) 40px}.route-point .status-select{grid-column:2/4;width:100%}}
