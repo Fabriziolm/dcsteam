@@ -188,7 +188,8 @@ export function OperativePortal({
           "No se pudo cargar la jornada.",
       );
     else {
-      setServices((serviceResult.data || []) as unknown as Service[]);
+      const availableServices = (serviceResult.data || []) as unknown as Service[];
+      setServices(availableServices);
       setShift(shiftResult.data);
       const allowedClients = (clientResult.data || []).filter((client) =>
         expenseClientNames.some(
@@ -207,7 +208,15 @@ export function OperativePortal({
         ) as Client[],
       );
       const assignedVehicle = vehicleResult.data?.vehicles as unknown as Vehicle | null;
-      setVehicles(assignedVehicle ? [assignedVehicle] : []);
+      // El auxiliar suele recibir la unidad a traves del servicio, aunque no
+      // tenga una asignacion directa en user_vehicle_assignments.
+      const serviceWithVehicle = availableServices.find(
+        service => service.service_date === today && service.vehicle_id && service.vehicles,
+      );
+      const serviceVehicle = serviceWithVehicle?.vehicle_id && serviceWithVehicle.vehicles
+        ? { id: serviceWithVehicle.vehicle_id, ...serviceWithVehicle.vehicles }
+        : null;
+      setVehicles(assignedVehicle ? [assignedVehicle] : serviceVehicle ? [serviceVehicle] : []);
       setFleetVehicles((fleetResult.data||[]) as Vehicle[]);
     }
     setLoading(false);
@@ -230,9 +239,16 @@ export function OperativePortal({
     const client = supabase;
     const channel = client
       .channel(`driver-services-${session.user.id}`)
-      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "services" }, () => void loadData())
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "services" }, () => {
+        if (!action) void loadData();
+      })
       .subscribe();
-    const refresh = () => void loadData();
+    // En iOS, abrir la camara o la fototeca dispara focus/visibilitychange.
+    // No debemos recargar mientras hay un formulario abierto porque se
+    // desmonta el input antes de que Safari entregue los archivos elegidos.
+    const refresh = () => {
+      if (!action && document.visibilityState === "visible") void loadData();
+    };
     window.addEventListener("focus", refresh);
     document.addEventListener("visibilitychange", refresh);
     return () => {
@@ -240,7 +256,7 @@ export function OperativePortal({
       document.removeEventListener("visibilitychange", refresh);
       void client.removeChannel(channel);
     };
-  }, [loadData, session.user.id]);
+  }, [action, loadData, session.user.id]);
   useEffect(() => {
     if (initialAction) open(initialAction);
   }, [initialAction]);
@@ -318,6 +334,7 @@ export function OperativePortal({
     setSaving(true);
     setError("");
     let result: { error: { message: string } | null };
+    let uploadedExpensePaths:string[]=[];
     if(action==="attendance-correction"){
       if(!shift){setError("No existe una marcación para corregir.");setSaving(false);return}
       if(form.description.trim().length<8){setError("Explica el error con al menos 8 caracteres.");setSaving(false);return}
@@ -376,12 +393,16 @@ export function OperativePortal({
           upsert: false,
         });
       if (upload.error) {
+        if (receiptPaths.length) {
+          await supabase.storage.from("expense-receipts").remove(receiptPaths);
+        }
         setError(`No se pudo subir el comprobante: ${upload.error.message}`);
         setSaving(false);
         return;
       }
       receiptPaths.push(receiptPath);
       }
+      uploadedExpensePaths=receiptPaths;
       result = await supabase.from("expenses").insert({
         user_id: session.user.id,
         service_id: null,
@@ -416,7 +437,12 @@ export function OperativePortal({
         odometer,
       });
     }
-    if (result.error) setError(result.error.message);
+    if (result.error) {
+      if (uploadedExpensePaths.length) {
+        await supabase.storage.from("expense-receipts").remove(uploadedExpensePaths);
+      }
+      setError(result.error.message);
+    }
     else {
       if (action === "progress") {
         const expectedStatus = form.status;
