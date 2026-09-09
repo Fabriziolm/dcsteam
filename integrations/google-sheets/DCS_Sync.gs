@@ -23,7 +23,7 @@ function syncDcs(){
 function readServices(){
   const sh=SpreadsheetApp.openById(SOURCES.transport).getSheetByName("Registro Entregas");
   const values=sh.getRange(2,1,Math.max(0,sh.getLastRow()-1),21).getValues();
-  return values.map((r,i)=>({sourceKey:`transport:${i+2}`,date:isoDate(r[0]),client:text(r[2]),invoiced:/^si$/i.test(text(r[3])),merchandise:text(r[4]),driver:text(r[5]),driverStart:isoTime(r[6]),driverEnd:isoTime(r[7]),assistant:text(r[9]),vehicle:text(r[13]),plate:text(r[14]),notes:text(r[15]),kmStart:num(r[16]),kmEnd:num(r[17]),gasoline:num(r[19]),glp:num(r[20])})).filter(r=>r.date&&r.client);
+  return values.map((r,i)=>({sourceKey:`transport:${i+2}`,date:isoDate(r[0]),day:text(r[1]),client:text(r[2]),invoiced:/^si$/i.test(text(r[3])),merchandise:text(r[4]),driver:text(r[5]),driverStart:isoTime(r[6]),driverEnd:isoTime(r[7]),assistant:text(r[9]),vehicle:text(r[13]),plate:text(r[14]),notes:text(r[15]),kmStart:num(r[16]),kmEnd:num(r[17]),gasoline:num(r[19]),glp:num(r[20])})).filter(r=>r.date&&r.client);
 }
 function readInvoices(){
   const sh=SpreadsheetApp.openById(SOURCES.invoices).getSheetByName("FACTURAS X COBRAR");

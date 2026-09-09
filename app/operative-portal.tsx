@@ -122,6 +122,7 @@ export function OperativePortal({
     service_id: "",
     client_id: "",
     vehicle_id: "",
+    expense_date: localDateKey(),
     amount: "",
     concept: "",
     category: "Peaje",
@@ -292,6 +293,7 @@ export function OperativePortal({
       service_id: service?.id || "",
       client_id: draft.client_id || "",
       vehicle_id: service?.vehicle_id || vehicles[0]?.id || "",
+      expense_date: draft.expense_date || today,
       km: "",
       amount: draft.amount || "",
       concept: draft.concept || "",
@@ -310,8 +312,8 @@ export function OperativePortal({
 
   useEffect(()=>{
     if(action!=="fuel"&&action!=="expense")return;
-    localStorage.setItem(expenseDraftKey,JSON.stringify({client_id:form.client_id,amount:form.amount,concept:form.concept,category:form.category}));
-  },[action,expenseDraftKey,form.amount,form.category,form.client_id,form.concept]);
+    localStorage.setItem(expenseDraftKey,JSON.stringify({client_id:form.client_id,expense_date:form.expense_date,amount:form.amount,concept:form.concept,category:form.category}));
+  },[action,expenseDraftKey,form.amount,form.category,form.client_id,form.concept,form.expense_date]);
 
   function closeAction(){
     if(window.history.state?.dcsModal)window.history.back();else setAction(null);
@@ -369,6 +371,8 @@ export function OperativePortal({
       const assignedVehicleId = form.vehicle_id || vehicles[0]?.id || "";
       if(!form.client_id){setError("Selecciona el cliente antes de guardar el gasto.");setSaving(false);return}
       if (!assignedVehicleId) { setError("Administración debe asignarte una unidad antes de registrar gastos."); setSaving(false); return; }
+      const expenseDate=form.expense_date;
+      if(!/^\d{4}-\d{2}-\d{2}$/.test(expenseDate)||expenseDate>today){setError("Selecciona una fecha válida que no sea posterior a hoy.");setSaving(false);return}
       const amount = Number(form.amount);
       if (!Number.isFinite(amount) || amount <= 0 || amount > 10000) { setError("El importe debe ser mayor a S/ 0 y menor o igual a S/ 10,000."); setSaving(false); return; }
       if (form.concept.trim().length < 4) { setError("Describe mejor el concepto del gasto."); setSaving(false); return; }
@@ -379,13 +383,18 @@ export function OperativePortal({
       }
       if (expenseReceipts.some(file=>!file.type.startsWith("image/"))) { setError("Todos los comprobantes deben ser imágenes."); setSaving(false); return; }
       if (expenseReceipts.some(file=>file.size > 8 * 1024 * 1024)) { setError("Cada imagen debe pesar como máximo 8 MB."); setSaving(false); return; }
-      const duplicate = await supabase.from("expenses").select("id").eq("user_id",session.user.id).eq("expense_date",today).eq("vehicle_id",assignedVehicleId).eq("category",form.category).eq("amount",amount).eq("source_system","dcs_app").neq("status","Rechazado").limit(1);
-      if (duplicate.error) { setError(duplicate.error.message); setSaving(false); return; }
-      if (duplicate.data?.length) { setError("Posible comprobante duplicado: ya registraste hoy el mismo importe, tipo y unidad."); setSaving(false); return; }
+      // Una misma unidad puede pagar varios peajes iguales el mismo día
+      // (ida/vuelta o distintos puntos). El comprobante es la evidencia de
+      // cada registro, por lo que no se deben bloquear por importe repetido.
+      if (form.category !== "Peaje") {
+        const duplicate = await supabase.from("expenses").select("id").eq("user_id",session.user.id).eq("expense_date",expenseDate).eq("vehicle_id",assignedVehicleId).eq("category",form.category).eq("amount",amount).eq("source_system","dcs_app").neq("status","Rechazado").limit(1);
+        if (duplicate.error) { setError(duplicate.error.message); setSaving(false); return; }
+        if (duplicate.data?.length) { setError(`Posible comprobante duplicado: ya registraste el ${new Date(`${expenseDate}T12:00:00`).toLocaleDateString("es-PE")} el mismo importe, tipo y unidad.`); setSaving(false); return; }
+      }
       const receiptPaths:string[]=[];
       for(const file of expenseReceipts){
       const extension = file.name.split(".").pop()?.toLowerCase() || "jpg";
-      const receiptPath = `${session.user.id}/${today}/${crypto.randomUUID()}.${extension}`;
+      const receiptPath = `${session.user.id}/${expenseDate}/${crypto.randomUUID()}.${extension}`;
       const upload = await supabase.storage
         .from("expense-receipts")
         .upload(receiptPath, file, {
@@ -404,6 +413,7 @@ export function OperativePortal({
       }
       uploadedExpensePaths=receiptPaths;
       result = await supabase.from("expenses").insert({
+        expense_date: expenseDate,
         user_id: session.user.id,
         service_id: null,
         client_id: form.client_id,
@@ -736,6 +746,19 @@ export function OperativePortal({
                 )}
                 {(action === "fuel" || action === "expense") && (
                   <>
+                    <label>
+                      Fecha del gasto
+                      <input
+                        type="date"
+                        required
+                        max={today}
+                        value={form.expense_date}
+                        onChange={(e) =>
+                          setForm({ ...form, expense_date: e.target.value })
+                        }
+                      />
+                      <small>Usa la fecha impresa en el comprobante.</small>
+                    </label>
                     <label>
                       Cliente
                       <select
