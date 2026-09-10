@@ -130,7 +130,7 @@ function Sidebar({
         ["Registro de entregas diario", ListChecks],
         ["Facturación", Receipt],
         ["Caja y gastos", CurrencyDollar],
-        ["Reportes semanales", ChartLineUp],
+        ["Reportes mensuales", ChartLineUp],
         ["Flota", Car],
         ["Marcaciones", Clock],
         ["Equipo", Users],
@@ -947,7 +947,7 @@ function Dashboard({ session }: { session: Session }) {
   const owner = role === "Administrador";
   const operationsManager = owner;
   const defaultView=owner?"Resumen":"Mi ruta";
-  const allowedViews=useMemo(()=>owner?["Resumen","Operaciones","GPS en vivo","Registro de entregas diario","Facturación","Caja y gastos","Reportes semanales","Flota","Marcaciones","Equipo"]:["Mi ruta","Registro de entregas diario","Gastos","Mis horas","Incidencias"],[owner]);
+  const allowedViews=useMemo(()=>owner?["Resumen","Operaciones","GPS en vivo","Registro de entregas diario","Facturación","Caja y gastos","Reportes mensuales","Flota","Marcaciones","Equipo"]:["Mi ruta","Registro de entregas diario","Gastos","Mis horas","Incidencias"],[owner]);
   const viewKey=`dcs_last_view_${session.user.id}_${role}`;
   const [view, setView] = useState(defaultView);
   const [showGuide,setShowGuide]=useState(false);
@@ -1000,7 +1000,7 @@ function Dashboard({ session }: { session: Session }) {
       <BillingManagement />
     ) : owner && view === "Caja y gastos" ? (
       <ExpensesManagement />
-    ) : owner && view === "Reportes semanales" ? (
+    ) : owner && view === "Reportes mensuales" ? (
       <><AdminGrowthFindingsObjectives/><AdminWeeklyOperations/><AdminDailyClientMetrics/><AdminWeeklyReports /></>
     ) : owner && view === "Flota" ? (
       <FleetManagement />
