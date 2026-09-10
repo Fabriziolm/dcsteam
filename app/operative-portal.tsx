@@ -263,6 +263,7 @@ export function OperativePortal({
   }, [initialAction]);
   useEffect(()=>{const closeOnBack=()=>setAction(null);window.addEventListener("popstate",closeOnBack);return()=>window.removeEventListener("popstate",closeOnBack)},[]);
   const activeShift = Boolean(shift?.clock_in && !shift.clock_out);
+  const selectableVehicles = fleetVehicles.length ? fleetVehicles : vehicles;
   const completed = services.filter((s) => s.status === "Completado").length;
   const elapsed = useMemo(
     () =>
@@ -292,7 +293,7 @@ export function OperativePortal({
       ...f,
       service_id: service?.id || "",
       client_id: draft.client_id || "",
-      vehicle_id: service?.vehicle_id || vehicles[0]?.id || "",
+      vehicle_id: next === "attendance" && role === "Chofer" ? "" : service?.vehicle_id || vehicles[0]?.id || "",
       expense_date: draft.expense_date || today,
       km: "",
       amount: draft.amount || "",
@@ -712,8 +713,8 @@ export function OperativePortal({
                     </select>
                   </label>
                 )}
-                {action === "km"&&<label>Unidad<select required value={form.vehicle_id} onChange={e=>setForm({...form,vehicle_id:e.target.value})}><option value="">Seleccionar unidad</option>{fleetVehicles.map(vehicle=><option key={vehicle.id} value={vehicle.id}>{vehicle.name} · {vehicle.plate}</option>)}</select></label>}
-                {action === "finding"&&<label>Unidad<select required value={form.vehicle_id} onChange={e=>setForm({...form,vehicle_id:e.target.value})}><option value="">Seleccionar unidad</option>{fleetVehicles.map(vehicle=><option key={vehicle.id} value={vehicle.id}>{vehicle.name} · {vehicle.plate}</option>)}</select></label>}
+                {(action === "km" || action === "finding")&&<label>Unidad<select required value={form.vehicle_id} onChange={e=>setForm({...form,vehicle_id:e.target.value})}><option value="">Seleccionar unidad</option>{selectableVehicles.map(vehicle=><option key={vehicle.id} value={vehicle.id}>{vehicle.name} · {vehicle.plate}</option>)}</select></label>}
+                {action === "attendance" && role === "Chofer" && <label>Unidad para esta jornada<select required value={form.vehicle_id} onChange={e=>setForm({...form,vehicle_id:e.target.value})}><option value="">Seleccionar unidad</option>{selectableVehicles.map(vehicle=><option key={vehicle.id} value={vehicle.id}>{vehicle.name} · {vehicle.plate}</option>)}</select><small>Elige la unidad que conduces hoy. El kilometraje se validará contra su propio odómetro.</small></label>}
                 {action === "attendance" && <div className="attendance-proof"><MapPin size={25}/><div><strong>Ubicación obligatoria</strong><p>Al guardar solicitaremos tu ubicación GPS exacta.</p></div><div className="receipt-picker"><strong>Foto tomada ahora</strong><AttendanceCamera file={receipt} onCapture={setReceipt}/></div></div>}
                 {action === "attendance-correction"&&<><div className="attendance-correction-note"><WarningCircle size={20}/><p>La marcación original no se elimina. Administración revisará esta solicitud y quedará registrada en la auditoría.</p></div><label>¿Qué deseas corregir?<select value={form.correction_type} onChange={e=>setForm({...form,correction_type:e.target.value})}><option>Entrada</option><option>Salida</option>{shift?.clock_out&&<option>Reabrir</option>}</select></label>{form.correction_type!=="Reabrir"&&<label>Hora correcta<input type="datetime-local" required value={form.correction_time} onChange={e=>setForm({...form,correction_time:e.target.value})}/></label>}<label>Motivo<textarea required minLength={8} value={form.description} onChange={e=>setForm({...form,description:e.target.value})} placeholder="Explica qué marcaste por error y cuál es la corrección…"/></label></>}
                 {(action === "km" || action === "progress" || (action === "attendance" && role === "Chofer")) && (
