@@ -21,11 +21,17 @@ type StaffProfile = {
 type Vehicle = { id: string; name: string; plate: string };
 const assignableRoles = ["Administrador", "Chofer", "Auxiliar"];
 
+function VehicleAssignmentPicker({vehicles,selected,onToggle}:{vehicles:Vehicle[];selected:string[];onToggle:(vehicleId:string)=>void}) {
+  return <div className="vehicle-assignment-list" aria-label="Unidades asignadas">
+    {vehicles.map(vehicle=><label key={vehicle.id} className={selected.includes(vehicle.id)?"selected":""}><input type="checkbox" checked={selected.includes(vehicle.id)} onChange={()=>onToggle(vehicle.id)}/><span>{vehicle.name}<small>{vehicle.plate}</small></span></label>)}
+  </div>;
+}
+
 export function TeamManagement() {
   const [profiles, setProfiles] = useState<StaffProfile[]>([]);
   const [roles, setRoles] = useState<Record<string, string>>({});
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
-  const [assignedVehicles, setAssignedVehicles] = useState<Record<string, string>>({});
+  const [assignedVehicles, setAssignedVehicles] = useState<Record<string, string[]>>({});
   const [loading, setLoading] = useState(true);
   const [workingId, setWorkingId] = useState("");
   const [error, setError] = useState("");
@@ -46,7 +52,11 @@ export function TeamManagement() {
       const users = (usersResult.data ?? []) as StaffProfile[];
       setProfiles(users);
       setVehicles((vehiclesResult.data || []) as Vehicle[]);
-      setAssignedVehicles(Object.fromEntries((assignmentsResult.data || []).map(item=>[item.user_id,item.vehicle_id])));
+      const assignments=(assignmentsResult.data||[]).reduce<Record<string,string[]>>((grouped,item)=>{
+        grouped[item.user_id]=[...(grouped[item.user_id]||[]),item.vehicle_id];
+        return grouped;
+      },{});
+      setAssignedVehicles(assignments);
       setRoles(
         Object.fromEntries(
           users.map((user) => [
@@ -71,11 +81,33 @@ export function TeamManagement() {
     return()=>{void client.removeChannel(channel)};
   }, [loadProfiles]);
 
+  function toggleVehicle(userId:string,vehicleId:string){
+    setAssignedVehicles(current=>{
+      const selected=current[userId]||[];
+      return {...current,[userId]:selected.includes(vehicleId)?selected.filter(id=>id!==vehicleId):[...selected,vehicleId]};
+    });
+  }
+
+  async function saveVehicleAssignments(userId:string,vehicleIds:string[]){
+    if(!supabase)return {message:"Supabase no está configurado."};
+    const selected=[...new Set(vehicleIds)];
+    if(!selected.length){
+      const result=await supabase.from("user_vehicle_assignments").delete().eq("user_id",userId);
+      return result.error;
+    }
+    const actor=(await supabase.auth.getUser()).data.user?.id;
+    const upsert=await supabase.from("user_vehicle_assignments").upsert(selected.map(vehicleId=>({user_id:userId,vehicle_id:vehicleId,active:true,assigned_by:actor,assigned_at:new Date().toISOString(),updated_at:new Date().toISOString()})),{onConflict:"user_id,vehicle_id"});
+    if(upsert.error)return upsert.error;
+    const cleanup=await supabase.from("user_vehicle_assignments").delete().eq("user_id",userId).not("vehicle_id","in",`(${selected.join(",")})`);
+    return cleanup.error;
+  }
+
   async function approve(profile: StaffProfile) {
     if (!supabase) return;
     const selectedRole = roles[profile.id] ?? "Chofer";
-    if (selectedRole !== "Administrador" && !assignedVehicles[profile.id]) { setError("Selecciona una unidad antes de aprobar al trabajador."); return; }
-    if(selectedRole!=="Administrador"&&!vehicles.some(vehicle=>vehicle.id===assignedVehicles[profile.id])){setError("La unidad seleccionada ya no está disponible. Elige otra unidad activa.");return}
+    const selectedVehicles=assignedVehicles[profile.id]||[];
+    if (selectedRole !== "Administrador" && !selectedVehicles.length) { setError("Selecciona al menos una unidad antes de aprobar al trabajador."); return; }
+    if(selectedRole!=="Administrador"&&selectedVehicles.some(id=>!vehicles.some(vehicle=>vehicle.id===id))){setError("Una unidad seleccionada ya no está disponible. Revisa la asignación.");return}
     if(!window.confirm(`¿Aprobar a ${profile.full_name||profile.email||"este usuario"} como ${selectedRole}?`))return;
     setWorkingId(profile.id);
     setError("");setMessage("");
@@ -83,12 +115,10 @@ export function TeamManagement() {
       target_user_id: profile.id,
       new_role: selectedRole,
     });
-    const assignmentResult = !approveError && selectedRole !== "Administrador"
-      ? await supabase.from("user_vehicle_assignments").upsert({user_id:profile.id,vehicle_id:assignedVehicles[profile.id],active:true,assigned_by:(await supabase.auth.getUser()).data.user?.id},{onConflict:"user_id"})
-      : {error:null};
-    if (approveError || assignmentResult.error)
+    const assignmentError = !approveError ? await saveVehicleAssignments(profile.id,selectedRole==="Administrador"?[]:selectedVehicles) : null;
+    if (approveError || assignmentError)
       setError(
-        `No se pudo aprobar a ${profile.email ?? "este usuario"}: ${approveError?.message || assignmentResult.error?.message}`,
+        `No se pudo aprobar a ${profile.email ?? "este usuario"}: ${approveError?.message || assignmentError?.message}`,
       );
     else {setMessage("Usuario aprobado y acceso configurado.");await loadProfiles();}
     setWorkingId("");
@@ -97,8 +127,9 @@ export function TeamManagement() {
   async function manage(profile: StaffProfile, nextActive: boolean) {
     if (!supabase) return;
     const selectedRole=roles[profile.id]??profile.role;
-    if(nextActive&&selectedRole!=="Administrador"&&!assignedVehicles[profile.id]){setError("Selecciona una unidad para el chofer o auxiliar antes de guardar.");return}
-    if(nextActive&&selectedRole!=="Administrador"&&!vehicles.some(vehicle=>vehicle.id===assignedVehicles[profile.id])){setError("La unidad asignada está inactiva o en mantenimiento. Selecciona otra unidad.");return}
+    const selectedVehicles=assignedVehicles[profile.id]||[];
+    if(nextActive&&selectedRole!=="Administrador"&&!selectedVehicles.length){setError("Selecciona al menos una unidad para el chofer o auxiliar antes de guardar.");return}
+    if(nextActive&&selectedRole!=="Administrador"&&selectedVehicles.some(id=>!vehicles.some(vehicle=>vehicle.id===id))){setError("Una unidad asignada está inactiva o en mantenimiento. Revisa la selección.");return}
     if(!nextActive&&!window.confirm(`¿Desactivar a ${profile.full_name||profile.email||"este usuario"}? Perderá el acceso a la aplicación.`))return;
     if(nextActive&&!profile.active&&!window.confirm(`¿Reactivar el acceso de ${profile.full_name||profile.email||"este usuario"}?`))return;
     setWorkingId(profile.id);
@@ -108,18 +139,7 @@ export function TeamManagement() {
       new_role: selectedRole,
       new_active: nextActive,
     });
-    let assignmentError: {message:string}|null = null;
-    if (!manageError && nextActive && selectedRole !== "Administrador") {
-      const vehicleId = assignedVehicles[profile.id];
-      const assignmentResult = vehicleId
-        ? await supabase.from("user_vehicle_assignments").upsert({user_id:profile.id,vehicle_id:vehicleId,active:true,assigned_by:(await supabase.auth.getUser()).data.user?.id,assigned_at:new Date().toISOString()},{onConflict:"user_id"})
-        : await supabase.from("user_vehicle_assignments").delete().eq("user_id",profile.id);
-      assignmentError = assignmentResult.error;
-    }
-    if(!manageError&&nextActive&&selectedRole==="Administrador"){
-      const assignmentResult=await supabase.from("user_vehicle_assignments").delete().eq("user_id",profile.id);
-      assignmentError=assignmentResult.error;
-    }
+    const assignmentError=!manageError&&nextActive?await saveVehicleAssignments(profile.id,selectedRole==="Administrador"?[]:selectedVehicles):null;
     if (manageError || assignmentError)
       setError(
         `No se pudo actualizar a ${profile.email ?? "este usuario"}: ${manageError?.message || assignmentError?.message}`,
@@ -188,7 +208,7 @@ export function TeamManagement() {
                     <option key={role}>{role}</option>
                   ))}
               </select>
-                {(roles[profile.id]??"Chofer") !== "Administrador" && <select className="vehicle-assignment" value={assignedVehicles[profile.id]||""} onChange={event=>setAssignedVehicles({...assignedVehicles,[profile.id]:event.target.value})}><option value="">Asignar unidad</option>{vehicles.map(vehicle=><option key={vehicle.id} value={vehicle.id}>{vehicle.name} · {vehicle.plate}</option>)}</select>}
+                {(roles[profile.id]??"Chofer") !== "Administrador" && <VehicleAssignmentPicker vehicles={vehicles} selected={assignedVehicles[profile.id]||[]} onToggle={vehicleId=>toggleVehicle(profile.id,vehicleId)}/>}
                 <button
                   className="approve-button"
                   disabled={workingId === profile.id}
@@ -225,7 +245,7 @@ export function TeamManagement() {
                   <option key={role}>{role}</option>
                 ))}
               </select>
-              {(roles[profile.id]??profile.role) !== "Administrador" && <select className="vehicle-assignment" value={assignedVehicles[profile.id]||""} onChange={event=>setAssignedVehicles({...assignedVehicles,[profile.id]:event.target.value})}><option value="">Seleccionar unidad</option>{vehicles.map(vehicle=><option key={vehicle.id} value={vehicle.id}>{vehicle.name} · {vehicle.plate}</option>)}</select>}
+              {(roles[profile.id]??profile.role) !== "Administrador" && <VehicleAssignmentPicker vehicles={vehicles} selected={assignedVehicles[profile.id]||[]} onToggle={vehicleId=>toggleVehicle(profile.id,vehicleId)}/>}
               <button
                 className="approve-button"
                 disabled={workingId === profile.id}
@@ -245,7 +265,7 @@ export function TeamManagement() {
         </article>
         <article className="panel team-panel inactive-team">
           <div className="panel-title"><div><span>SIN ACCESO</span><h3>Usuarios desactivados</h3></div><b className="count-badge">{inactive.length}</b></div>
-          {inactive.length===0?<div className="empty-state"><CheckCircle size={30}/>No hay usuarios desactivados.</div>:inactive.map(profile=><div className="staff-row" key={profile.id}><UserCircle size={34} weight="duotone"/><div className="staff-identity"><strong>{profile.full_name||"Usuario DCS"}</strong><span>{profile.email} · {profile.role}</span></div><select value={roles[profile.id]??profile.role} onChange={event=>setRoles({...roles,[profile.id]:event.target.value})}>{assignableRoles.map(role=><option key={role}>{role}</option>)}</select>{(roles[profile.id]??profile.role)!=="Administrador"&&<select className="vehicle-assignment" value={assignedVehicles[profile.id]||""} onChange={event=>setAssignedVehicles({...assignedVehicles,[profile.id]:event.target.value})}><option value="">Seleccionar unidad</option>{vehicles.map(vehicle=><option key={vehicle.id} value={vehicle.id}>{vehicle.name} · {vehicle.plate}</option>)}</select>}<button className="approve-button" disabled={workingId===profile.id} onClick={()=>void manage(profile,true)}>{workingId===profile.id?"Reactivando…":"Reactivar"}</button></div>)}
+          {inactive.length===0?<div className="empty-state"><CheckCircle size={30}/>No hay usuarios desactivados.</div>:inactive.map(profile=><div className="staff-row" key={profile.id}><UserCircle size={34} weight="duotone"/><div className="staff-identity"><strong>{profile.full_name||"Usuario DCS"}</strong><span>{profile.email} · {profile.role}</span></div><select value={roles[profile.id]??profile.role} onChange={event=>setRoles({...roles,[profile.id]:event.target.value})}>{assignableRoles.map(role=><option key={role}>{role}</option>)}</select>{(roles[profile.id]??profile.role)!=="Administrador"&&<VehicleAssignmentPicker vehicles={vehicles} selected={assignedVehicles[profile.id]||[]} onToggle={vehicleId=>toggleVehicle(profile.id,vehicleId)}/>}<button className="approve-button" disabled={workingId===profile.id} onClick={()=>void manage(profile,true)}>{workingId===profile.id?"Reactivando…":"Reactivar"}</button></div>)}
         </article>
       </section>
     </main>

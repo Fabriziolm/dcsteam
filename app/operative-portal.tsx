@@ -22,7 +22,7 @@ import { supabase } from "../lib/supabase";
 
 type Role = "Chofer" | "Auxiliar";
 type Client = { id: string; name: string };
-type Vehicle = { id: string; name: string; plate: string };
+type Vehicle = { id: string; name: string; plate: string; current_km: number };
 const expenseClientNames = [
   "Indurama",
   "Quiminap",
@@ -54,7 +54,7 @@ type Service = {
   km_end: number | null;
   vehicle_id: string | null;
   clients: { name: string } | null;
-  vehicles: { name: string; plate: string } | null;
+  vehicles: { name: string; plate: string; current_km: number } | null;
 };
 const distanceKm=(a:{lat:number;lng:number},b:{lat:number;lng:number})=>{const radians=(value:number)=>value*Math.PI/180,dLat=radians(b.lat-a.lat),dLng=radians(b.lng-a.lng),lat1=radians(a.lat),lat2=radians(b.lat),value=Math.sin(dLat/2)**2+Math.cos(lat1)*Math.cos(lat2)*Math.sin(dLng/2)**2;return 6371*2*Math.atan2(Math.sqrt(value),Math.sqrt(1-value))};
 type Action =
@@ -102,7 +102,6 @@ export function OperativePortal({
   const [services, setServices] = useState<Service[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
-  const [fleetVehicles, setFleetVehicles] = useState<Vehicle[]>([]);
   const [shift, setShift] = useState<{
     id: string;
     clock_in: string;
@@ -141,12 +140,12 @@ export function OperativePortal({
     if (!supabase) return;
     setLoading(true);
     setError("");
-    const [serviceResult, shiftResult, clientResult, vehicleResult, fleetResult] =
+    const [serviceResult, shiftResult, clientResult, vehicleResult] =
       await Promise.all([
         supabase
           .from("services")
           .select(
-            "id,service_date,scheduled_start,status,origin,destination,destination_lat,destination_lng,merchandise,km_start,km_end,vehicle_id,clients(name),vehicles(name,plate)",
+            "id,service_date,scheduled_start,status,origin,destination,destination_lat,destination_lng,merchandise,km_start,km_end,vehicle_id,clients(name),vehicles(name,plate,current_km)",
           )
           .gte("service_date", today)
           .order("service_date")
@@ -167,25 +166,21 @@ export function OperativePortal({
           .order("name"),
         supabase
           .from("user_vehicle_assignments")
-          .select("vehicle_id,vehicles(id,name,plate)")
+          .select("vehicle_id,vehicles(id,name,plate,current_km)")
           .eq("user_id", session.user.id)
-          .eq("active", true)
-          .maybeSingle(),
-        supabase.from("vehicles").select("id,name,plate").eq("active",true).order("name"),
+          .eq("active", true),
       ]);
     if (
       serviceResult.error ||
       shiftResult.error ||
       clientResult.error ||
-      vehicleResult.error ||
-      fleetResult.error
+      vehicleResult.error
     )
       setError(
         serviceResult.error?.message ||
           shiftResult.error?.message ||
           clientResult.error?.message ||
           vehicleResult.error?.message ||
-          fleetResult.error?.message ||
           "No se pudo cargar la jornada.",
       );
     else {
@@ -208,17 +203,15 @@ export function OperativePortal({
             ),
         ) as Client[],
       );
-      const assignedVehicle = vehicleResult.data?.vehicles as unknown as Vehicle | null;
+      const assignedVehicles = (vehicleResult.data || [])
+        .map(assignment => assignment.vehicles as unknown as Vehicle | null)
+        .filter((vehicle): vehicle is Vehicle => Boolean(vehicle));
       // El auxiliar suele recibir la unidad a traves del servicio, aunque no
       // tenga una asignacion directa en user_vehicle_assignments.
-      const serviceWithVehicle = availableServices.find(
-        service => service.service_date === today && service.vehicle_id && service.vehicles,
-      );
-      const serviceVehicle = serviceWithVehicle?.vehicle_id && serviceWithVehicle.vehicles
-        ? { id: serviceWithVehicle.vehicle_id, ...serviceWithVehicle.vehicles }
-        : null;
-      setVehicles(assignedVehicle ? [assignedVehicle] : serviceVehicle ? [serviceVehicle] : []);
-      setFleetVehicles((fleetResult.data||[]) as Vehicle[]);
+      const serviceVehicles = availableServices
+        .filter(service => service.service_date === today && service.vehicle_id && service.vehicles)
+        .map(service => ({ id: service.vehicle_id!, ...service.vehicles! }));
+      setVehicles([...new Map([...assignedVehicles,...serviceVehicles].map(vehicle=>[vehicle.id,vehicle])).values()]);
     }
     setLoading(false);
   }, [session.user.id, today]);
@@ -263,7 +256,8 @@ export function OperativePortal({
   }, [initialAction]);
   useEffect(()=>{const closeOnBack=()=>setAction(null);window.addEventListener("popstate",closeOnBack);return()=>window.removeEventListener("popstate",closeOnBack)},[]);
   const activeShift = Boolean(shift?.clock_in && !shift.clock_out);
-  const selectableVehicles = fleetVehicles.length ? fleetVehicles : vehicles;
+  const selectableVehicles = vehicles;
+  const selectedVehicle = selectableVehicles.find(vehicle=>vehicle.id===form.vehicle_id);
   const completed = services.filter((s) => s.status === "Completado").length;
   const elapsed = useMemo(
     () =>
@@ -714,7 +708,7 @@ export function OperativePortal({
                   </label>
                 )}
                 {(action === "km" || action === "finding")&&<label>Unidad<select required value={form.vehicle_id} onChange={e=>setForm({...form,vehicle_id:e.target.value})}><option value="">Seleccionar unidad</option>{selectableVehicles.map(vehicle=><option key={vehicle.id} value={vehicle.id}>{vehicle.name} · {vehicle.plate}</option>)}</select></label>}
-                {action === "attendance" && role === "Chofer" && <label>Unidad para esta jornada<select required value={form.vehicle_id} onChange={e=>setForm({...form,vehicle_id:e.target.value})}><option value="">Seleccionar unidad</option>{selectableVehicles.map(vehicle=><option key={vehicle.id} value={vehicle.id}>{vehicle.name} · {vehicle.plate}</option>)}</select><small>Elige la unidad que conduces hoy. El kilometraje se validará contra su propio odómetro.</small></label>}
+                {action === "attendance" && role === "Chofer" && <label>Unidad para esta jornada<select required value={form.vehicle_id} onChange={e=>setForm({...form,vehicle_id:e.target.value,km:""})}><option value="">Seleccionar unidad</option>{selectableVehicles.map(vehicle=><option key={vehicle.id} value={vehicle.id}>{vehicle.name} · {vehicle.plate}</option>)}</select><small>{selectedVehicle?`Último kilometraje de esta unidad: ${Number(selectedVehicle.current_km).toLocaleString("es-PE")} km.`:"Elige una de las unidades asignadas por administración."}</small></label>}
                 {action === "attendance" && <div className="attendance-proof"><MapPin size={25}/><div><strong>Ubicación obligatoria</strong><p>Al guardar solicitaremos tu ubicación GPS exacta.</p></div><div className="receipt-picker"><strong>Foto tomada ahora</strong><AttendanceCamera file={receipt} onCapture={setReceipt}/></div></div>}
                 {action === "attendance-correction"&&<><div className="attendance-correction-note"><WarningCircle size={20}/><p>La marcación original no se elimina. Administración revisará esta solicitud y quedará registrada en la auditoría.</p></div><label>¿Qué deseas corregir?<select value={form.correction_type} onChange={e=>setForm({...form,correction_type:e.target.value})}><option>Entrada</option><option>Salida</option>{shift?.clock_out&&<option>Reabrir</option>}</select></label>{form.correction_type!=="Reabrir"&&<label>Hora correcta<input type="datetime-local" required value={form.correction_time} onChange={e=>setForm({...form,correction_time:e.target.value})}/></label>}<label>Motivo<textarea required minLength={8} value={form.description} onChange={e=>setForm({...form,description:e.target.value})} placeholder="Explica qué marcaste por error y cuál es la corrección…"/></label></>}
                 {(action === "km" || action === "progress" || (action === "attendance" && role === "Chofer")) && (
@@ -722,7 +716,7 @@ export function OperativePortal({
                     Kilometraje actual
                     <input
                       type="number"
-                      min="0"
+                      min={selectedVehicle?.current_km ?? 0}
                       step="0.1"
                       required
                       value={form.km}
@@ -780,7 +774,7 @@ export function OperativePortal({
                     </label>
                     <label>
                       Unidad
-                      {vehicles.length ? <div className="assigned-unit"><Car size={18}/><strong>{vehicles[0].name} · {vehicles[0].plate}</strong><small>Unidad asignada por administración</small></div> : <div className="module-error">No tienes una unidad asignada. Comunícate con administración.</div>}
+                      {vehicles.length>1?<select required value={form.vehicle_id} onChange={event=>setForm({...form,vehicle_id:event.target.value})}><option value="">Seleccionar unidad</option>{vehicles.map(vehicle=><option key={vehicle.id} value={vehicle.id}>{vehicle.name} · {vehicle.plate}</option>)}</select>:vehicles.length===1?<div className="assigned-unit"><Car size={18}/><strong>{vehicles[0].name} · {vehicles[0].plate}</strong><small>Unidad asignada por administración</small></div>:<div className="module-error">No tienes una unidad asignada. Comunícate con administración.</div>}
                     </label>
                     <label>
                       Tipo
