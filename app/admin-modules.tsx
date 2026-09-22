@@ -53,10 +53,20 @@ type Invoice = {
 
 function invoiceStatusTone(status: string) {
   const normalized = status.trim().toLocaleLowerCase("es-PE");
-  if (normalized === "pagado") return "invoice-paid";
-  if (normalized === "pendiente") return "invoice-pending";
-  if (normalized === "parcial") return "invoice-partial";
+  if (normalized === "pagado" || normalized === "facturada") return "invoice-paid";
+  if (normalized === "pendiente" || normalized === "no pagado") return "invoice-pending";
+  if (normalized === "parcial" || normalized === "pago parcial") return "invoice-partial";
   return "invoice-neutral";
+}
+
+function invoicePaymentStatus(invoice: Invoice) {
+  const amount = Number(invoice.amount_with_tax) || 0;
+  const paid = Number(invoice.paid_amount) || 0;
+  const status = invoice.status.trim().toLocaleLowerCase("es-PE");
+
+  if (status === "pagado" || (amount > 0 && paid >= amount)) return "Pagado";
+  if (status === "parcial" || paid > 0) return "Pago parcial";
+  return "No pagado";
 }
 type Expense = {
   id: string;
@@ -204,9 +214,9 @@ export function BillingManagement() {
     visibleRows = rows.filter(row => clientFilter === "all" || (row.clients?.name || "Sin cliente") === clientFilter),
     total = visibleRows.reduce((n, r) => n + Number(r.amount_with_tax), 0),
     pending = visibleRows
-      .filter((r) => !r.attachment_path && (r.status === "Pendiente" || r.status === "Parcial"))
+      .filter((r) => invoicePaymentStatus(r) !== "Pagado")
       .reduce(
-        (n, r) => n + Number(r.amount_with_tax) - Number(r.paid_amount),
+        (n, r) => n + Math.max(0, Number(r.amount_with_tax) - Number(r.paid_amount)),
         0,
       );
   return (
@@ -249,7 +259,8 @@ export function BillingManagement() {
             <th>Cliente</th>
             <th>Concepto</th>
             <th>Importe</th>
-            <th>Estado</th>
+            <th>Factura</th>
+            <th>Pago</th>
             <th>Archivo</th>
           </tr>
         </thead>
@@ -262,7 +273,10 @@ export function BillingManagement() {
               <td>{r.concept || "—"}</td>
               <td>S/ {Number(r.amount_with_tax).toFixed(2)}</td>
               <td>
-                <b className={`table-status ${invoiceStatusTone(r.attachment_path ? "Pagado" : r.status)}`}>{r.attachment_path ? "Facturado" : r.status}</b>
+                <b className={`table-status ${invoiceStatusTone(r.attachment_path ? "Facturada" : "Sin PDF")}`}>{r.attachment_path ? "Facturada" : "Sin PDF"}</b>
+              </td>
+              <td>
+                <b className={`table-status ${invoiceStatusTone(invoicePaymentStatus(r))}`}>{invoicePaymentStatus(r)}</b>
               </td>
               <td>
                 {r.attachment_path ? <><button className="receipt-link" onClick={() => void openInvoiceFile(r.attachment_path!)}><Paperclip size={14} /> Ver factura</button><label className="invoice-attach-replace">{uploadingId===r.id?"Subiendo…":"Reemplazar"}<input type="file" accept="application/pdf" disabled={uploadingId===r.id} onChange={event => { const file=event.target.files?.[0]; if(file) void attachInvoice(r,file); event.target.value=""; }} /></label></> : <label className="receipt-link invoice-attach-label"><Paperclip size={14} /> {uploadingId===r.id?"Subiendo…":"Adjuntar PDF"}<input type="file" accept="application/pdf" disabled={uploadingId===r.id} onChange={event => { const file=event.target.files?.[0]; if(file) void attachInvoice(r,file); event.target.value=""; }} /></label>}
