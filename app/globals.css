@@ -1,4 +1,5 @@
 @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap');
+@import './staff-alerts.css';
 
 :root { --navy:#10253f; --blue:#2364d2; --sky:#e9f2ff; --ink:#172033; --muted:#718096; --line:#e7ebf1; --canvas:#f4f7fb; --white:#fff; --green:#159a72; --amber:#ed9b25; --red:#dc5a59; --purple:#7653c9; }
 .year-picker{border:1px solid var(--line);border-radius:12px;padding:5px 9px;background:#fafcff;display:flex;flex-direction:column}.year-picker span{font-size:8px;color:var(--muted)}.year-picker select{border:0;background:transparent;font-weight:800;color:var(--ink);outline:none}

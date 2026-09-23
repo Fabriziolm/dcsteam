@@ -19,12 +19,21 @@ type StaffRole = "Chofer" | "Auxiliar";
 type AlertMode = "vibration" | "sound" | "both";
 type StaffAlert = {
   id: string;
-  target_role: StaffRole | "Todos";
+  target_role: StaffRole | "Todos" | "Personas";
   alert_mode: AlertMode;
   message: string;
   created_at: string;
   expires_at: string;
+  target_user_ids?: string[] | null;
 };
+type StaffRecipient = { id: string; full_name: string | null; email: string | null; role: string; active: boolean };
+
+const WEB_PUSH_VAPID_PUBLIC_KEY = "BHblL6pNrUqCIStlKyIzqkM6wdm9xsBgiE9-79cEQo3ggB5xNV4MWJTB3YbMI20M5CJsFgSc7DWiBptrGIYug5Q";
+function urlBase64ToUint8Array(value: string) {
+  const padding = "=".repeat((4 - (value.length % 4)) % 4);
+  const base64 = (value + padding).replace(/-/g, "+").replace(/_/g, "/");
+  return Uint8Array.from(window.atob(base64), (character) => character.charCodeAt(0));
+}
 
 const modeLabels: Record<AlertMode, string> = {
   vibration: "Vibración",
@@ -33,7 +42,9 @@ const modeLabels: Record<AlertMode, string> = {
 };
 
 export function StaffAlertsManagement({ session }: { session: Session }) {
-  const [targetRole, setTargetRole] = useState<StaffAlert["target_role"]>("Todos");
+  const [targetRole, setTargetRole] = useState<StaffAlert["target_role"]>("Personas");
+  const [recipients, setRecipients] = useState<StaffRecipient[]>([]);
+  const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
   const [alertMode, setAlertMode] = useState<AlertMode>("both");
   const [message, setMessage] = useState("");
   const [history, setHistory] = useState<StaffAlert[]>([]);
@@ -52,8 +63,20 @@ export function StaffAlertsManagement({ session }: { session: Session }) {
     else setHistory((data || []) as StaffAlert[]);
   }, []);
 
+  const loadRecipients = useCallback(async () => {
+    if (!supabase) return;
+    const { data, error: recipientsError } = await supabase.rpc("admin_list_users");
+    if (recipientsError) setError(`No se pudo cargar el personal: ${recipientsError.message}`);
+    else {
+      const users = ((data || []) as StaffRecipient[]).filter((user) => user.active && ["Chofer", "Auxiliar"].includes(user.role));
+      setRecipients(users);
+      setSelectedUserIds((current) => current.length ? current : users.filter((user) => /luis ortiz|nico/i.test(`${user.full_name || ""} ${user.email || ""}`)).map((user) => user.id));
+    }
+  }, []);
+
   useEffect(() => {
     void loadHistory();
+    void loadRecipients();
     if (!supabase) return;
     const client = supabase;
     const channel = client
@@ -61,7 +84,7 @@ export function StaffAlertsManagement({ session }: { session: Session }) {
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "staff_alerts" }, () => void loadHistory())
       .subscribe();
     return () => { void client.removeChannel(channel); };
-  }, [loadHistory]);
+  }, [loadHistory, loadRecipients]);
 
   async function sendAlert(event: FormEvent) {
     event.preventDefault();
@@ -69,15 +92,23 @@ export function StaffAlertsManagement({ session }: { session: Session }) {
     setSending(true);
     setError("");
     setSuccess("");
-    const { error: insertError } = await supabase.from("staff_alerts").insert({
+    if (targetRole === "Personas" && selectedUserIds.length === 0) {
+      setError("Selecciona al menos una persona.");
+      setSending(false);
+      return;
+    }
+    const { data: inserted, error: insertError } = await supabase.from("staff_alerts").insert({
       target_role: targetRole,
+      target_user_ids: targetRole === "Personas" ? selectedUserIds : null,
       alert_mode: alertMode,
       message: message.trim(),
       created_by: session.user.id,
-    });
+    }).select("id").single();
     if (insertError) setError(`No se pudo enviar la alerta: ${insertError.message}`);
     else {
-      setSuccess(`Alerta enviada a ${targetRole === "Todos" ? "choferes y auxiliares" : targetRole.toLocaleLowerCase("es-PE") + "es"}.`);
+      const push = inserted?.id ? await supabase.functions.invoke("send-staff-push", { body: { alert_id: inserted.id } }) : null;
+      const pushNote = push?.error ? " La alerta quedó registrada; el push se activará cuando el servidor termine de configurarse." : "";
+      setSuccess(`Alerta enviada a ${targetRole === "Todos" ? "choferes y auxiliares" : targetRole === "Personas" ? `${selectedUserIds.length} personas` : targetRole.toLocaleLowerCase("es-PE") + "es"}.${pushNote}`);
       setMessage("");
       await loadHistory();
     }
@@ -107,14 +138,15 @@ export function StaffAlertsManagement({ session }: { session: Session }) {
           <fieldset>
             <legend>Destinatarios</legend>
             <div className="alert-choice-row">
-              {(["Todos", "Chofer", "Auxiliar"] as const).map((role) => (
+              {(["Personas", "Todos", "Chofer", "Auxiliar"] as const).map((role) => (
                 <label className={targetRole === role ? "selected" : ""} key={role}>
                   <input type="radio" name="target-role" value={role} checked={targetRole === role} onChange={() => setTargetRole(role)} />
                   <UsersThree size={19} />
-                  <span>{role === "Todos" ? "Todos" : role === "Chofer" ? "Choferes" : "Auxiliares"}</span>
+                  <span>{role === "Personas" ? "Personas" : role === "Todos" ? "Todos" : role === "Chofer" ? "Choferes" : "Auxiliares"}</span>
                 </label>
               ))}
             </div>
+            {targetRole === "Personas" && <div className="alert-recipient-list">{recipients.length === 0 ? <small>No hay personal operativo activo.</small> : recipients.map((user) => <label key={user.id} className={selectedUserIds.includes(user.id) ? "selected" : ""}><input type="checkbox" checked={selectedUserIds.includes(user.id)} onChange={() => setSelectedUserIds((current) => current.includes(user.id) ? current.filter((id) => id !== user.id) : [...current, user.id])} /><span><strong>{user.full_name || user.email || "Usuario"}</strong><small>{user.role}</small></span></label>)}</div>}
           </fieldset>
 
           <fieldset>
@@ -233,6 +265,16 @@ export function StaffAlertReceiver({ session, role }: { session: Session; role: 
     setActivationVisible(false);
     if ("vibrate" in navigator) navigator.vibrate(140);
     await playTone().catch(() => undefined);
+    if (supabase && "serviceWorker" in navigator && "PushManager" in window && WEB_PUSH_VAPID_PUBLIC_KEY) {
+      try {
+        const registration = await navigator.serviceWorker.ready;
+        const subscription = await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(WEB_PUSH_VAPID_PUBLIC_KEY) });
+        const json = subscription.toJSON();
+        if (json.endpoint && json.keys?.p256dh && json.keys.auth) {
+          await supabase.from("staff_push_subscriptions").upsert({ user_id: session.user.id, role, endpoint: json.endpoint, p256dh: json.keys.p256dh, auth: json.keys.auth, user_agent: navigator.userAgent, last_seen_at: new Date().toISOString() }, { onConflict: "endpoint" });
+        }
+      } catch { /* El aviso en tiempo real sigue disponible si el navegador no admite Push. */ }
+    }
   }
 
   function closeAlert() {
