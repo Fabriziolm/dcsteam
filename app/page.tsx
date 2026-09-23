@@ -55,6 +55,7 @@ import { PwaInstall } from "./pwa-install";
 import { FuelReport } from "./fuel-report";
 import { AdminDailyClientMetrics, AdminGrowthFindingsObjectives, AdminWeeklyOperations, AdminWeeklyReports, DailyDeliveryRegister, WorkerDailyClientMetrics, WorkerWeeklyServiceSummary } from "./admin-weekly-reports";
 import { ReportingYearPicker, ReportingYearProvider } from "./reporting-year";
+import { StaffAlertReceiver, StaffAlertsManagement } from "./staff-alerts";
 import { isSupabaseConfigured, supabase } from "../lib/supabase";
 
 type Role = "Administrador" | "Chofer" | "Auxiliar";
@@ -133,6 +134,7 @@ function Sidebar({
         ["Reportes mensuales", ChartLineUp],
         ["Flota", Car],
         ["Marcaciones", Clock],
+        ["Alertas al personal", Bell],
         ["Equipo", Users],
       ]
     : [
@@ -920,6 +922,7 @@ const adminGuide:GuideStep[]=[
   {view:"Caja y gastos",title:"Caja y gastos",description:"Revisa comprobantes, aprueba o rechaza gastos y descarga la carpeta semanal."},
   {view:"Flota",title:"Flota",description:"Administra placas, kilometraje, combustible y disponibilidad de las unidades."},
   {view:"Marcaciones",title:"Marcaciones",description:"Audita entradas, salidas, ubicación, fotos y solicitudes de corrección del personal."},
+  {view:"Alertas al personal",title:"Alertas al personal",description:"Envía avisos con sonido o vibración a choferes, auxiliares o a todo el equipo operativo."},
   {view:"Equipo",title:"Equipo",description:"Aprueba usuarios, asigna cargos y unidades, y administra quién puede ingresar a la app."},
 ];
 const workerGuide:GuideStep[]=[
@@ -947,7 +950,7 @@ function Dashboard({ session }: { session: Session }) {
   const owner = role === "Administrador";
   const operationsManager = owner;
   const defaultView=owner?"Resumen":"Mi ruta";
-  const allowedViews=useMemo(()=>owner?["Resumen","Operaciones","GPS en vivo","Registro de entregas diario","Facturación","Caja y gastos","Reportes mensuales","Flota","Marcaciones","Equipo"]:["Mi ruta","Registro de entregas diario","Gastos","Mis horas","Incidencias"],[owner]);
+  const allowedViews=useMemo(()=>owner?["Resumen","Operaciones","GPS en vivo","Registro de entregas diario","Facturación","Caja y gastos","Reportes mensuales","Flota","Marcaciones","Alertas al personal","Equipo"]:["Mi ruta","Registro de entregas diario","Gastos","Mis horas","Incidencias"],[owner]);
   const viewKey=`dcs_last_view_${session.user.id}_${role}`;
   const [view, setView] = useState(defaultView);
   const [showGuide,setShowGuide]=useState(false);
@@ -982,6 +985,8 @@ function Dashboard({ session }: { session: Session }) {
       <TeamManagement />
     ) : owner && view === "Marcaciones" ? (
       <><AdminWorkHoursReport/><AttendanceManagement /></>
+    ) : owner && view === "Alertas al personal" ? (
+      <StaffAlertsManagement session={session} />
     ) : operationsManager && view === "Operaciones" ? (
       <ServicesManagement />
     ) : operationsManager && view === "GPS en vivo" ? (
@@ -1024,6 +1029,7 @@ function Dashboard({ session }: { session: Session }) {
       </div>
       {showGuide&&<OnboardingGuide role={role} onNavigate={(next)=>navigateView(next,true)} onFinish={finishGuide}/>}
       {showRouteAlert&&role==="Chofer"&&<DriverRouteAlert onNavigate={navigateView} onClose={closeRouteAlert}/>}
+      {!owner&&<StaffAlertReceiver session={session} role={role as "Chofer" | "Auxiliar"}/>}
     </div></ReportingYearProvider>
   );
 }
