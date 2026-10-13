@@ -320,6 +320,18 @@ export function HoursManagement({role}:{role:"Chofer"|"Auxiliar"}) {
     const ordinaryPay=((ordinaryMinutes+holidayMinutes)/60)*rate,extraPay=(extraMinutes/60)*rate,lunchPay=lunchDays*20;
     return {start,end,rate,ordinaryMinutes,extraMinutes,holidayMinutes,credited,ordinaryPay,extraPay,lunchDays,lunchPay,totalPay:ordinaryPay+extraPay+lunchPay};
   },[rows,holidays,role]);
+  const october=useMemo(()=>{
+    const year=new Date().getFullYear(),month=`${year}-10`,rate=role==="Chofer"?10.41:6.77;
+    const entries=rows.filter(row=>row.work_date.startsWith(month));
+    const closedEntries=entries.filter(row=>row.clock_in&&row.clock_out);
+    const workedMinutes=closedEntries.reduce((sum,row)=>sum+Math.max(0,(new Date(row.clock_out!).getTime()-new Date(row.clock_in!).getTime())/60000-Number(row.break_minutes||0)),0);
+    const workedDates=new Set(closedEntries.map(row=>row.work_date));
+    const credited=holidays.filter(day=>day.holiday_date.startsWith(month)&&!workedDates.has(day.holiday_date));
+    const holidayMinutes=credited.reduce((sum,day)=>sum+Number(day.credited_hours)*60,0);
+    const lunchDays=closedEntries.filter(row=>(new Date(row.clock_out!).getTime()-new Date(row.clock_in!).getTime())/60000-Number(row.break_minutes||0)>600).length;
+    const basePay=(workedMinutes+holidayMinutes)/60*rate,lunchPay=lunchDays*20;
+    return {year,rate,workedMinutes,holidayMinutes,lunchDays,lunchPay,basePay,totalPay:basePay+lunchPay,closedDays:closedEntries.length,pendingDays:entries.length-closedEntries.length};
+  },[rows,holidays,role]);
   const simulatedImportedHours=useMemo(()=>{
     const month=`${new Date().getFullYear()}-09`,existing=new Set(importedHours.map(row=>row.week_start));
     const simulated=monthWeekStarts(month).filter(weekStart=>!existing.has(weekStart)).map(weekStart=>({id:`simulated:${weekStart}`,user_id:null,worker_label:"Semana simulada",week_start:weekStart,worked_minutes:0,source_value:"Semana de septiembre simulada: aún sin registro"}));
@@ -352,6 +364,27 @@ export function HoursManagement({role}:{role:"Chofer"|"Auxiliar"}) {
           {error}
         </div>
       )}
+      <section className="panel october-pay-panel" aria-labelledby="october-pay-title">
+        <div className="october-pay-heading">
+          <div>
+            <span>ACUMULADO DE OCTUBRE {october.year}</span>
+            <h3 id="october-pay-title">Horas marcadas y pago estimado</h3>
+            <p>Calculado con las jornadas cerradas de tu cuenta como {role.toLocaleLowerCase("es-PE")}.</p>
+          </div>
+          <div className="october-pay-total">
+            <span>Total estimado</span>
+            <strong>S/ {october.totalPay.toFixed(2)}</strong>
+            <small>S/ {october.rate.toFixed(2)} por hora</small>
+          </div>
+        </div>
+        <div className="october-pay-breakdown">
+          <div><span>Horas acumuladas</span><strong>{Math.floor(october.workedMinutes/60)}h {Math.round(october.workedMinutes%60)}m</strong><small>{october.closedDays} jornada{october.closedDays===1?"":"s"} cerrada{october.closedDays===1?"":"s"}</small></div>
+          <div><span>Pago por horas</span><strong>S/ {october.basePay.toFixed(2)}</strong><small>{october.holidayMinutes>0?`Incluye ${Math.floor(october.holidayMinutes/60)}h ${Math.round(october.holidayMinutes%60)}m de feriados`:"Sin feriados adicionales"}</small></div>
+          <div><span>Almuerzos reconocidos</span><strong>{october.lunchDays} · S/ {october.lunchPay.toFixed(2)}</strong><small>Jornadas mayores de 10 horas</small></div>
+          <div><span>Marcaciones pendientes</span><strong>{october.pendingDays}</strong><small>{october.pendingDays===1?"Jornada sin salida":"Jornadas sin salida"}</small></div>
+        </div>
+        <p className="october-pay-note">Monto informativo: horas marcadas + feriados reconocidos + almuerzos. Sujeto a revisión de administración.</p>
+      </section>
       <section className="metrics-grid compact">
         <article className="metric purple">
           <span>Histórico desde marzo</span>
