@@ -40,6 +40,16 @@ const localDateKey = (date = new Date()) => {
   const offsetDate = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
   return offsetDate.toISOString().slice(0, 10);
 };
+const includedAttendanceDays = new Set([
+  "09-28","09-29","09-30","10-01","10-02",
+  "10-05","10-06","10-07","10-08","10-09",
+  "10-12","10-13","10-14","10-15",
+  "10-19","10-20","10-21","10-22",
+  "10-26","10-27","10-28","10-29","10-30",
+]);
+const isIncludedAttendanceDay = (date: string) => includedAttendanceDays.has(date.slice(5));
+const attendanceHourlyRate = (role: Role, date: string) =>
+  role === "Chofer" ? 10.41 : date < "2026-10-01" ? 6.77 : 1500 / 24 / 8;
 type Service = {
   id: string;
   service_date: string;
@@ -290,16 +300,19 @@ export function OperativePortal({
   );
   const hours = `${String(Math.floor(elapsed / 3600000)).padStart(2, "0")}:${String(Math.floor(elapsed / 60000) % 60).padStart(2, "0")}`;
   const personalAttendanceSummary=useMemo(()=>attendanceHistory.reduce((summary,row)=>{
-    if(!row.clock_in)return summary;
+    if(!row.clock_in||!isIncludedAttendanceDay(row.work_date))return summary;
     const projected=!row.clock_out;
     const end=row.clock_out?new Date(row.clock_out):new Date(`${row.work_date}T18:00:00`);
     const minutes=Math.max(0,Math.round((end.getTime()-new Date(row.clock_in).getTime())/60000)-Number(row.break_minutes||0));
+    const lunch=minutes>600;
     summary.minutes+=minutes;
     summary.days+=1;
-    summary.lunches+=minutes>600?1:0;
+    summary.lunches+=lunch?1:0;
+    summary.basePay+=minutes/60*attendanceHourlyRate(role,row.work_date);
+    summary.lunchPay+=lunch?20:0;
     summary.projectedDays+=projected?1:0;
     return summary;
-  },{minutes:0,days:0,lunches:0,projectedDays:0}),[attendanceHistory]);
+  },{minutes:0,days:0,lunches:0,projectedDays:0,basePay:0,lunchPay:0}),[attendanceHistory,role]);
   const personalHours=`${Math.floor(personalAttendanceSummary.minutes/60)}h ${personalAttendanceSummary.minutes%60}m`;
 
   function currentPosition() {
@@ -558,7 +571,8 @@ export function OperativePortal({
         <div className="personal-hours-metrics">
           <div><span>Horas trabajadas</span><strong>{personalHours}</strong></div>
           <div><span>Almuerzos acumulados</span><strong>{personalAttendanceSummary.lunches}</strong><small>Jornadas mayores de 10 horas</small></div>
-          <div><span>Jornadas registradas</span><strong>{personalAttendanceSummary.days}</strong></div>
+          <div><span>Jornadas registradas</span><strong>{personalAttendanceSummary.days} / 23</strong></div>
+          <div><span>Pago estimado</span><strong>S/ {(personalAttendanceSummary.basePay+personalAttendanceSummary.lunchPay).toFixed(2)}</strong><small>Horas S/ {personalAttendanceSummary.basePay.toFixed(2)} · almuerzos S/ {personalAttendanceSummary.lunchPay.toFixed(2)}</small></div>
         </div>
         <p>Las jornadas sin salida se calculan hasta las 6:00 p. m. solo para este acumulado.</p>
       </section>
