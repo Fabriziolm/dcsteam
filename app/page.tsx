@@ -45,11 +45,11 @@ import {
 import { LiveOwnerDashboard } from "./owner-dashboard";
 import {
   AdminWorkHoursReport,
-  AttendanceManagement,
   FindingsManagement,
   HoursManagement,
   TeamDirectory,
 } from "./workforce-modules";
+import { AttendanceManagement } from "./attendance-management";
 import { GpsLive } from "./gps-live";
 import { PwaInstall } from "./pwa-install";
 import { FuelReport } from "./fuel-report";

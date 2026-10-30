@@ -56,6 +56,13 @@ type Service = {
   clients: { name: string } | null;
   vehicles: { name: string; plate: string; current_km: number } | null;
 };
+type PersonalAttendance = {
+  id: string;
+  work_date: string;
+  clock_in: string | null;
+  clock_out: string | null;
+  break_minutes: number;
+};
 const distanceKm=(a:{lat:number;lng:number},b:{lat:number;lng:number})=>{const radians=(value:number)=>value*Math.PI/180,dLat=radians(b.lat-a.lat),dLng=radians(b.lng-a.lng),lat1=radians(a.lat),lat2=radians(b.lat),value=Math.sin(dLat/2)**2+Math.cos(lat1)*Math.cos(lat2)*Math.sin(dLng/2)**2;return 6371*2*Math.atan2(Math.sqrt(value),Math.sqrt(1-value))};
 type Action =
   "attendance" | "attendance-correction" | "km" | "fuel" | "expense" | "finding" | "detail" | "progress" | null;
@@ -107,6 +114,7 @@ export function OperativePortal({
     clock_in: string;
     clock_out: string | null;
   } | null>(null);
+  const [attendanceHistory,setAttendanceHistory]=useState<PersonalAttendance[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [action, setAction] = useState<Action>(null);
@@ -135,12 +143,13 @@ export function OperativePortal({
   // La fecha operativa debe ser la fecha local del chofer. Con UTC, en Lima la
   // app cambiaba al día siguiente desde las 19:00 y dejaba de mostrar la ruta.
   const today = localDateKey();
+  const attendancePeriodStart = `${today.slice(0,4)}-09-28`;
 
   const loadData = useCallback(async () => {
     if (!supabase) return;
     setLoading(true);
     setError("");
-    const [serviceResult, shiftResult, clientResult, vehicleResult] =
+    const [serviceResult, shiftResult, clientResult, vehicleResult, attendanceResult] =
       await Promise.all([
         supabase
           .from("services")
@@ -169,24 +178,34 @@ export function OperativePortal({
           .select("vehicle_id,vehicles(id,name,plate,current_km)")
           .eq("user_id", session.user.id)
           .eq("active", true),
+        supabase
+          .from("time_entries")
+          .select("id,work_date,clock_in,clock_out,break_minutes")
+          .eq("user_id",session.user.id)
+          .gte("work_date",attendancePeriodStart)
+          .lte("work_date",today)
+          .order("work_date",{ascending:true}),
       ]);
     if (
       serviceResult.error ||
       shiftResult.error ||
       clientResult.error ||
-      vehicleResult.error
+      vehicleResult.error ||
+      attendanceResult.error
     )
       setError(
         serviceResult.error?.message ||
           shiftResult.error?.message ||
           clientResult.error?.message ||
           vehicleResult.error?.message ||
+          attendanceResult.error?.message ||
           "No se pudo cargar la jornada.",
       );
     else {
       const availableServices = (serviceResult.data || []) as unknown as Service[];
       setServices(availableServices);
       setShift(shiftResult.data);
+      setAttendanceHistory((attendanceResult.data||[]) as PersonalAttendance[]);
       const allowedClients = (clientResult.data || []).filter((client) =>
         expenseClientNames.some(
           (name) => normalizeName(name) === normalizeName(client.name),
@@ -214,7 +233,7 @@ export function OperativePortal({
       setVehicles([...new Map([...assignedVehicles,...serviceVehicles].map(vehicle=>[vehicle.id,vehicle])).values()]);
     }
     setLoading(false);
-  }, [session.user.id, today]);
+  }, [attendancePeriodStart, session.user.id, today]);
 
   useEffect(() => {
     void loadData();
@@ -234,6 +253,9 @@ export function OperativePortal({
     const channel = client
       .channel(`driver-services-${session.user.id}`)
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "services" }, () => {
+        if (!action) void loadData();
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "time_entries", filter:`user_id=eq.${session.user.id}` }, () => {
         if (!action) void loadData();
       })
       .subscribe();
@@ -267,6 +289,18 @@ export function OperativePortal({
     [shift],
   );
   const hours = `${String(Math.floor(elapsed / 3600000)).padStart(2, "0")}:${String(Math.floor(elapsed / 60000) % 60).padStart(2, "0")}`;
+  const personalAttendanceSummary=useMemo(()=>attendanceHistory.reduce((summary,row)=>{
+    if(!row.clock_in)return summary;
+    const projected=!row.clock_out;
+    const end=row.clock_out?new Date(row.clock_out):new Date(`${row.work_date}T18:00:00`);
+    const minutes=Math.max(0,Math.round((end.getTime()-new Date(row.clock_in).getTime())/60000)-Number(row.break_minutes||0));
+    summary.minutes+=minutes;
+    summary.days+=1;
+    summary.lunches+=minutes>600?1:0;
+    summary.projectedDays+=projected?1:0;
+    return summary;
+  },{minutes:0,days:0,lunches:0,projectedDays:0}),[attendanceHistory]);
+  const personalHours=`${Math.floor(personalAttendanceSummary.minutes/60)}h ${personalAttendanceSummary.minutes%60}m`;
 
   function currentPosition() {
     return new Promise<GeolocationPosition>((resolve, reject) => navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }));
@@ -516,6 +550,18 @@ export function OperativePortal({
         </div>
       )}
       {routeMessage&&<div className="module-success"><CheckCircle size={20}/>{routeMessage}</div>}
+      <section className="panel personal-hours-panel">
+        <div className="personal-hours-heading">
+          <div><span>Mi acumulado</span><h3>Del 28 de septiembre hasta hoy</h3></div>
+          {personalAttendanceSummary.projectedDays>0&&<b>{personalAttendanceSummary.projectedDays} salida{personalAttendanceSummary.projectedDays===1?"":"s"} estimada{personalAttendanceSummary.projectedDays===1?"":"s"}</b>}
+        </div>
+        <div className="personal-hours-metrics">
+          <div><span>Horas trabajadas</span><strong>{personalHours}</strong></div>
+          <div><span>Almuerzos acumulados</span><strong>{personalAttendanceSummary.lunches}</strong><small>Jornadas mayores de 10 horas</small></div>
+          <div><span>Jornadas registradas</span><strong>{personalAttendanceSummary.days}</strong></div>
+        </div>
+        <p>Las jornadas sin salida se calculan hasta las 6:00 p. m. solo para este acumulado.</p>
+      </section>
       {role === "Chofer" && <section className="operative-guide panel"><div><span>GUÍA RÁPIDA</span><h3>Cómo registrar tu jornada y servicios</h3></div><ol><li><strong>Inicio de jornada:</strong> registra el KM del tablero y tu ubicación.</li><li><strong>Por cada cliente:</strong> abre el servicio, registra KM inicial y selecciona En ruta.</li><li><strong>Al terminar:</strong> registra KM final y selecciona Completado.</li><li><strong>Peajes y gastos:</strong> súbelos con importe, cliente y comprobante.</li></ol><small>El KM del servicio permite calcular kilómetros y utilidad por cliente.</small></section>}
       <section className="operative-grid">
         <div className="schedule">
