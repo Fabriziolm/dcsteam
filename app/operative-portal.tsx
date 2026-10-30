@@ -301,8 +301,8 @@ export function OperativePortal({
   const hours = `${String(Math.floor(elapsed / 3600000)).padStart(2, "0")}:${String(Math.floor(elapsed / 60000) % 60).padStart(2, "0")}`;
   const personalAttendanceSummary=useMemo(()=>attendanceHistory.reduce((summary,row)=>{
     if(!row.clock_in||!isIncludedAttendanceDay(row.work_date))return summary;
-    const projected=!row.clock_out;
-    const end=row.clock_out?new Date(row.clock_out):new Date(`${row.work_date}T18:00:00`);
+    if(!row.clock_out){summary.projectedDays+=1;return summary}
+    const end=new Date(row.clock_out);
     const minutes=Math.max(0,Math.round((end.getTime()-new Date(row.clock_in).getTime())/60000)-Number(row.break_minutes||0));
     const lunch=minutes>600;
     summary.minutes+=minutes;
@@ -310,7 +310,6 @@ export function OperativePortal({
     summary.lunches+=lunch?1:0;
     summary.basePay+=minutes/60*attendanceHourlyRate(role,row.work_date);
     summary.lunchPay+=lunch?20:0;
-    summary.projectedDays+=projected?1:0;
     return summary;
   },{minutes:0,days:0,lunches:0,projectedDays:0,basePay:0,lunchPay:0}),[attendanceHistory,role]);
   const personalHours=`${Math.floor(personalAttendanceSummary.minutes/60)}h ${personalAttendanceSummary.minutes%60}m`;
@@ -566,15 +565,15 @@ export function OperativePortal({
       <section className="panel personal-hours-panel">
         <div className="personal-hours-heading">
           <div><span>Mi acumulado</span><h3>Del 28 de septiembre hasta hoy</h3></div>
-          {personalAttendanceSummary.projectedDays>0&&<b>{personalAttendanceSummary.projectedDays} salida{personalAttendanceSummary.projectedDays===1?"":"s"} estimada{personalAttendanceSummary.projectedDays===1?"":"s"}</b>}
+          {personalAttendanceSummary.projectedDays>0&&<b>{personalAttendanceSummary.projectedDays} salida{personalAttendanceSummary.projectedDays===1?"":"s"} pendiente{personalAttendanceSummary.projectedDays===1?"":"s"}</b>}
         </div>
         <div className="personal-hours-metrics">
           <div><span>Horas trabajadas</span><strong>{personalHours}</strong></div>
           <div><span>Almuerzos acumulados</span><strong>{personalAttendanceSummary.lunches}</strong><small>Jornadas mayores de 10 horas</small></div>
-          <div><span>Jornadas registradas</span><strong>{personalAttendanceSummary.days} / 23</strong></div>
+          <div><span>Jornadas cerradas</span><strong>{personalAttendanceSummary.days} / 23</strong></div>
           <div><span>Pago estimado</span><strong>S/ {(personalAttendanceSummary.basePay+personalAttendanceSummary.lunchPay).toFixed(2)}</strong><small>Horas S/ {personalAttendanceSummary.basePay.toFixed(2)} · almuerzos S/ {personalAttendanceSummary.lunchPay.toFixed(2)}</small></div>
         </div>
-        <p>Las jornadas sin salida se calculan hasta las 6:00 p. m. solo para este acumulado.</p>
+        <p>Las jornadas abiertas no suman horas, almuerzos ni pago hasta registrar la salida real.</p>
       </section>
       {role === "Chofer" && <section className="operative-guide panel"><div><span>GUÍA RÁPIDA</span><h3>Cómo registrar tu jornada y servicios</h3></div><ol><li><strong>Inicio de jornada:</strong> registra el KM del tablero y tu ubicación.</li><li><strong>Por cada cliente:</strong> abre el servicio, registra KM inicial y selecciona En ruta.</li><li><strong>Al terminar:</strong> registra KM final y selecciona Completado.</li><li><strong>Peajes y gastos:</strong> súbelos con importe, cliente y comprobante.</li></ol><small>El KM del servicio permite calcular kilómetros y utilidad por cliente.</small></section>}
       <section className="operative-grid">

@@ -59,6 +59,17 @@ type AttendanceStatus = {
 const formatMinutes = (minutes: number) =>
   `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
 
+const lunchStatusForEntry = (row: AttendanceEntry) => {
+  if (!row.clock_in || !row.clock_out) return { earned: null };
+  const end = new Date(row.clock_out);
+  const minutes = Math.max(
+    0,
+    Math.round((end.getTime() - new Date(row.clock_in).getTime()) / 60000) -
+      Number(row.break_minutes || 0),
+  );
+  return { earned: minutes > 600 };
+};
+
 export function AttendanceManagement() {
   const { year } = useReportingYear();
   const range = yearRange(year);
@@ -80,7 +91,6 @@ export function AttendanceManagement() {
   const [report, setReport] = useState({
     start: `${year}-09-28`,
     end: today,
-    assumedOut: "18:00",
   });
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -296,21 +306,19 @@ export function AttendanceManagement() {
       }
       const start = new Date(row.clock_in);
       const projected = !row.clock_out;
-      const end = row.clock_out
-        ? new Date(row.clock_out)
-        : new Date(`${row.work_date}T${report.assumedOut}:00`);
+      if (projected) {
+        current.projectedDays += 1;
+        grouped.set(row.user_id, current);
+        return;
+      }
+      const end = new Date(row.clock_out!);
       const minutes = Math.max(
         0,
         Math.round((end.getTime() - start.getTime()) / 60000) -
           Number(row.break_minutes || 0),
       );
-      if (projected) {
-        current.projectedDays += 1;
-        current.projectedLunches += minutes > 600 ? 1 : 0;
-      } else {
-        current.closedDays += 1;
-        current.actualMinutes += minutes;
-      }
+      current.closedDays += 1;
+      current.actualMinutes += minutes;
       current.totalMinutes += minutes;
       current.lunches += minutes > 600 ? 1 : 0;
       grouped.set(row.user_id, current);
@@ -318,7 +326,7 @@ export function AttendanceManagement() {
     return [...grouped.values()].sort((a, b) =>
       (people[a.userId] || "").localeCompare(people[b.userId] || "", "es"),
     );
-  }, [people, report.assumedOut, report.end, report.start, rows]);
+  }, [people, report.end, report.start, rows]);
 
   const mapLink = (lat: number, lng: number) =>
     `https://www.google.com/maps?q=${lat},${lng}`;
@@ -376,32 +384,30 @@ export function AttendanceManagement() {
       <section className="panel attendance-status-panel">
         <div className="panel-title">
           <div><span>ESTADO DEL PERÍODO</span><h3>Horas y almuerzos</h3></div>
-          <b className="status blue-status">Salida estimada {report.assumedOut}</b>
+          <b className="status blue-status">Solo salidas reales</b>
         </div>
         <div className="attendance-report-controls">
           <label>Desde<input type="date" value={report.start} max={report.end} onChange={(event) => setReport((current) => ({ ...current, start: event.target.value }))} /></label>
           <label>Hasta<input type="date" value={report.end} min={report.start} max={today} onChange={(event) => setReport((current) => ({ ...current, end: event.target.value }))} /></label>
-          <label>Salida para jornadas abiertas<input type="time" value={report.assumedOut} onChange={(event) => setReport((current) => ({ ...current, assumedOut: event.target.value }))} /></label>
         </div>
         <div className="table-scroll">
           <table className="data-table attendance-status-table">
-            <thead><tr><th>Trabajador</th><th>Jornadas cerradas</th><th>Horas registradas</th><th>Horas con estimación</th><th>Almuerzos</th><th>Estado</th></tr></thead>
+            <thead><tr><th>Trabajador</th><th>Jornadas cerradas</th><th>Horas acumuladas</th><th>Almuerzos</th><th>Estado</th></tr></thead>
             <tbody>
               {attendanceStatus.map((row) => (
                 <tr key={row.userId}>
                   <td><strong>{people[row.userId] || "Usuario DCS"}</strong></td>
-                  <td>{row.closedDays}{row.projectedDays > 0 && <small> + {row.projectedDays} a {report.assumedOut}</small>}</td>
-                  <td>{formatMinutes(row.actualMinutes)}</td>
+                  <td>{row.closedDays}{row.projectedDays > 0 && <small> · {row.projectedDays} abierta{row.projectedDays === 1 ? "" : "s"}</small>}</td>
                   <td><strong>{formatMinutes(row.totalMinutes)}</strong></td>
-                  <td>{row.lunches}{row.projectedLunches > 0 && <small> · {row.projectedLunches} estimado{row.projectedLunches === 1 ? "" : "s"}</small>}</td>
-                  <td><b className={`table-status ${row.projectedDays || row.pendingDays ? "attendance-status-pending" : ""}`}>{row.pendingDays ? `${row.pendingDays} sin entrada` : row.projectedDays ? `${row.projectedDays} salida estimada` : "Completo"}</b></td>
+                  <td>{row.lunches}</td>
+                  <td><b className={`table-status ${row.projectedDays || row.pendingDays ? "attendance-status-pending" : ""}`}>{row.pendingDays ? `${row.pendingDays} sin entrada` : row.projectedDays ? `${row.projectedDays} salida pendiente` : "Completo"}</b></td>
                 </tr>
               ))}
-              {attendanceStatus.length === 0 && <tr><td colSpan={6}>No hay marcaciones en el período seleccionado.</td></tr>}
+              {attendanceStatus.length === 0 && <tr><td colSpan={5}>No hay marcaciones en el período seleccionado.</td></tr>}
             </tbody>
           </table>
         </div>
-        <p className="attendance-report-note">Se reconoce un almuerzo cuando la jornada supera 10 horas. La hora estimada solo completa el reporte; no modifica la marcación original.</p>
+        <p className="attendance-report-note">Se reconoce un almuerzo cuando una jornada cerrada supera 10 horas. Las jornadas abiertas permanecen pendientes y no suman horas ni almuerzos.</p>
       </section>
 
       {corrections.length > 0 && (
@@ -425,7 +431,7 @@ export function AttendanceManagement() {
         {loading ? <div className="empty-state"><SpinnerGap className="spin" size={28} />Cargando marcaciones…</div> : (
           <div className="table-scroll">
             <table className="data-table attendance-table">
-              <thead><tr><th>Fecha</th><th>Trabajador</th><th>Entrada</th><th>Evidencia entrada</th><th>Salida</th><th>Evidencia salida</th><th>Estado</th></tr></thead>
+              <thead><tr><th>Fecha</th><th>Trabajador</th><th>Entrada</th><th>Evidencia entrada</th><th>Salida</th><th>Evidencia salida</th><th>Almuerzo</th><th>Estado</th></tr></thead>
               <tbody>
                 {rows.map((row) => (
                   <tr key={row.id}>
@@ -435,6 +441,7 @@ export function AttendanceManagement() {
                     <td>{row.clock_in_photo ? <button className="receipt-link" disabled={openingPhoto === row.clock_in_photo} onClick={() => void openPhoto(row.clock_in_photo!)}><Camera size={14} /> {openingPhoto === row.clock_in_photo ? "Abriendo…" : "Ver foto"}</button> : "—"}</td>
                     <td>{row.clock_out ? new Date(row.clock_out).toLocaleTimeString("es-PE", { hour: "2-digit", minute: "2-digit" }) : "—"}{row.clock_out_lat != null && row.clock_out_lng != null && <a className="map-link" href={mapLink(row.clock_out_lat, row.clock_out_lng)} target="_blank" rel="noopener noreferrer"><MapPin size={14} />Mapa · ±{Math.round(row.clock_out_accuracy || 0)} m</a>}</td>
                     <td>{row.clock_out_photo ? <button className="receipt-link" disabled={openingPhoto === row.clock_out_photo} onClick={() => void openPhoto(row.clock_out_photo!)}><Camera size={14} /> {openingPhoto === row.clock_out_photo ? "Abriendo…" : "Ver foto"}</button> : "—"}</td>
+                    <td>{lunchStatusForEntry(row).earned == null ? <><b className="lunch-status lunch-pending">Pendiente</b></> : <b className={`lunch-status ${lunchStatusForEntry(row).earned ? "lunch-earned" : "lunch-not-earned"}`}>{lunchStatusForEntry(row).earned ? "Sí" : "No"}</b>}</td>
                     <td><b className="table-status">{row.status}</b></td>
                   </tr>
                 ))}
